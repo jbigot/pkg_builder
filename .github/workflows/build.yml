@@ -1,0 +1,19 @@
+name: Docker images CI
+on:
+  push:
+    branches:
+    - master
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout
+      uses: actions/checkout@v2
+    - name: Build
+      run: |
+        ./build
+    - name: publish
+      env:
+        DOCKER_TOKEN: ${{ secrets.DockerToken }}
+      run: |
+        ./publish jbigot "${DOCKER_TOKEN}"

@@ -1,0 +1,40 @@
+#!/bin/bash
+
+if [ $# -eq 0 ]
+then true
+elif [ $# -eq 2 ]
+then
+	docker login -u "$1" -p "$2"
+else
+	echo "usage: $0 <login> <passwd>"
+	exit 1
+fi
+
+cd "$(mktemp -d --tmpdir PKG_BUILDER.XXXXXXXXXXXX.tmdir || exit 1)"
+trap 'rm -rf $PWD' EXIT
+
+
+curl -o debian.csv https://salsa.debian.org/debian/distro-info-data/-/raw/master/debian.csv
+awk -F , '/^[0-9]/ {if (!$6 && $5) print $3; else if (!$6) {print $3; print "sid"; exit }}' debian.csv > debians
+cat<<EOF  >> debians
+unstable
+testing
+stable
+oldstable
+oldoldstable
+EOF
+
+for DIST_RELEASE in $(cat debians)
+do
+	docker push "pdidevel/debian_builder:${DIST_RELEASE}"
+done
+docker push pdidevel/debian_builder:latest
+
+curl -o ubuntu.csv https://salsa.debian.org/debian/distro-info-data/-/raw/master/ubuntu.csv
+awk -F , -v date=$(date +%Y%m%d) '/^[0-9]/ {gsub("-", "", $6); if ($6>date) print $3}' ubuntu.csv > ubuntus
+
+for DIST_RELEASE in $(cat ubuntus)
+do
+	docker push "pdidevel/ubuntu_builder:${DIST_RELEASE}"
+done
+docker push pdidevel/ubuntu_builder:latest

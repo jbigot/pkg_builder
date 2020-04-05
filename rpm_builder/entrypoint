@@ -1,0 +1,29 @@
+#!/bin/bash
+set -e
+
+if [ "x${PKG_DEBUG_MODE}" == "xtrue" ]
+then 
+	set -x
+	MK_BUILD_DEPS_OPTS="-o Debug::pkgProblemResolver=yes"
+else
+	APT_GET_OPTS="-q"
+	CURL_OPTS="-s"
+fi
+
+trap 'echo received signal, quitting...; exit 1' SIGINT SIGQUIT
+
+cd /tmp
+yum-builddep -y /src/*.spec
+
+rpmbuild \
+	--define "_topdir    /tmp" \
+	--define "_builddir  %{_topdir}/output" \
+	--define "_rpmdir    %{_topdir}/RPMS" \
+	--define "_sourcedir %{_topdir}/SOURCES" \
+	--define "_specdir   /src" \
+	--define "_srcrpmdir %{_topdir}/output" \
+	--define "_tmppath   tmp" \
+	--undefine=_disable_source_fetch
+	-ba /src/*.spec
+find /tmp/output -type f -execdir chown "$(stat -c '%u:%g' "/out")" '{}' '+' 
+find /tmp/output -type f -execdir mv '{}' /out ';'
