@@ -1,56 +1,29 @@
 #!/bin/bash
-set -e
+set -x
 
-if [ "x${PKG_DEBUG_MODE}" == "xtrue" ]
-then 
-	set -x
-	MK_BUILD_DEPS_OPTS="-o Debug::pkgProblemResolver=yes"
-else
-	APT_GET_OPTS="-q"
-	CURL_OPTS="-s"
-fi
+trap 'echo received signal, quitting...; exit 1' INT TERM
 
-trap 'echo recieved signal, quitting...; exit 1' SIGINT SIGQUIT
-
-cd /src
-PKGNAME="$(dpkg-parsechangelog -S Source)"
-PKGVERS="$(dpkg-parsechangelog -S Version)"
-SRCVERS="$(echo "${PKGVERS}" | sed -e 's/.*://' -e 's/-.*//' )"
-PKGDATE="$(dpkg-parsechangelog -l "/src/debian/changelog" -S Date)"
-NEWTIME="$(( $(date +%s) - $(date -d "${PKGDATE}" +%s) ))"
-URGENCY="$(dpkg-parsechangelog -l "/src/debian/changelog" -S Urgency)"
-MNTAINR="$(dpkg-parsechangelog -l "/src/debian/changelog" -S Maintainer)"
-
-cat<<EOF > "/tmp/changelog.new"
-${PKGNAME} (${PKGVERS}~${VERSION_ID}${VERSION_CODENAME}+${NEWTIME}) ${VERSION_CODENAME}; urgency=${URGENCY}
-
-  * Rebuild for ${VERSION_CODENAME}
-
- -- ${MNTAINR}  $(date -R)
-
+apt-get -y update || exit 1
+dpkg -R --unpack /deps
+apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install
+dpkg -R --unpack /deps
+apt-get -t "${DIST_CODENAME}-backports" -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install
+dpkg -R --unpack /deps
+cat<<EOF > /etc/apt/preferences.d/zzz_priority
+Package: *
+Pin: release a=*
+Pin-Priority:500
 EOF
+apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install
+dpkg -R --install /deps || exit 1
 
-PKGDIR="/tmp/pkgbuild/${PKGNAME}-${SRCVERS}"
-mkdir -p "${PKGDIR}"
-cd "${PKGDIR}"
-cp -r "/src/debian" "${PKGDIR}"
-cat  "/tmp/changelog.new"  "/src/debian/changelog" > "${PKGDIR}/debian/changelog"
-make -f debian/rules debian/control
+mkdir /tmp/src
+cp -r /src/* /tmp/src
+cd /tmp/src || exit 1
+cd "$(find . -mindepth 1 -maxdepth 1 -type d || exit 1)" || exit 1
+dpkg-buildpackage "$@" || exit 1
 
-mkdir -p "/tmp/mk-build-deps"
-cd "/tmp/mk-build-deps"
-apt-get ${APT_GET_OPTS} -y update
-mk-build-deps -r -t "apt-get ${APT_GET_OPTS} ${MK_BUILD_DEPS_OPTS} -y --no-install-recommends" -i "${PKGDIR}/debian/control"
-if [ "x${PKG_FAST_MODE}" != "xtrue" ]
-then 
-	apt-mark auto ca-certificates curl equivs devscripts m4
-	apt-get ${APT_GET_OPTS} -y autoremove
-fi
-
-cd "${PKGDIR}"
-dpkg-buildpackage -sa "$@"
-cd "/tmp/pkgbuild"
-rm -rf "${PKGDIR}"
-
-chown $(stat -c '%u:%g' /out) *
-mv * /out
+cd /tmp/src || exit 1
+rm -rf "$(find . -mindepth 1 -maxdepth 1 -type d || exit 1)" || exit 1
+chown -R $(stat -c '%u:%g' /src) *
+mv -t /src -- *

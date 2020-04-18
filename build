@@ -25,20 +25,30 @@ for ID in debian ubuntu
 do
 	for VERSION_CODENAME in $(awk '{print $2}' "${ID}")
 	do
+		VERSION_LEVEL="$(awk -v VERSION_CODENAME=${VERSION_CODENAME} '$2==VERSION_CODENAME {print $3}' "${ID}")"
 		DIST_RELEASE="${VERSION_CODENAME}"
+		BACKPORT_LINE=''
 		if [ "x${ID}" == "xdebian" ]
 		then
 			DIST_RELEASE="${VERSION_CODENAME}-slim"
+			if [ "x${VERSION_LEVEL}" != 'xtesting'  ] && [ "x${VERSION_LEVEL}" != 'xunstable' ]
+			then
+				BACKPORT_LINE="deb http://deb.debian.org/debian ${VERSION_CODENAME}-backports main"
+				if [ "x${VERSION_LEVEL}" != 'xstable'  ]
+				then
+					BACKPORT_LINE="${BACKPORT_LINE}"$'\n'"deb http://deb.debian.org/debian ${VERSION_CODENAME}-backports-sloppy main"
+				fi
+			fi
 		fi
 		echo "   ===> docker build pdidevel/${ID}_builder:${VERSION_CODENAME}"
 		docker build -t "pdidevel/${ID}_builder:${VERSION_CODENAME}" \
-			--build-arg DIST_NAME=${ID} \
-			--build-arg DIST_RELEASE=${DIST_RELEASE} \
-			--build-arg "VERSION_ID=$(awk -v VERSION_CODENAME=${VERSION_CODENAME} '$2==VERSION_CODENAME {print $1}' "${ID}")" \
-			--build-arg "VERSION_CODENAME=${VERSION_CODENAME}" \
+			--build-arg "DIST_ID=${ID}" \
+			--build-arg "DIST_RELEASE=${DIST_RELEASE}" \
+			--build-arg "BACKPORT_LINE=${BACKPORT_LINE}" \
+			--build-arg "DIST_CODENAME=${VERSION_CODENAME}" \
 			"${SRCDIR}/deb_builder"
 		docker tag "pdidevel/${ID}_builder:${VERSION_CODENAME}" \
-			"pdidevel/${ID}_builder:$(awk -v VERSION_CODENAME=${VERSION_CODENAME} '$2==VERSION_CODENAME {print $3}' "${ID}")"
+			"pdidevel/${ID}_builder:${VERSION_LEVEL}"
 	done
 done
 docker tag pdidevel/debian_builder:stable pdidevel/debian_builder:latest

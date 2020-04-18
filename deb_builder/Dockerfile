@@ -1,40 +1,30 @@
-ARG DIST_NAME=debian
+ARG DIST_ID=debian
 ARG DIST_RELEASE=stable-slim
 
-FROM ${DIST_NAME}:${DIST_RELEASE}
-ARG DIST_NAME
-ARG VERSION_ID
-ARG VERSION_CODENAME
-ENV DIST_NAME ${DIST_NAME}
-ENV VERSION_ID ${VERSION_ID}
-ENV VERSION_CODENAME ${VERSION_CODENAME}
+FROM ${DIST_ID}:${DIST_RELEASE}
+ARG DIST_CODENAME
+ARG BACKPORT_LINE=''
 
-# Install build-essential because packages don't depend on it
-# Install curl & ca-certificates to be able to download the orig file
-# Install devscripts & equivs to get mk-build-deps
+VOLUME /src
+VOLUME /deps
+VOLUME /localrepo
+
+# Install build-essential because packages implicitly depend on it
 # Install and configure tzdata that is missing and unconfigured on focal
-RUN apt-get update -qy \
+RUN echo "${BACKPORT_LINE}" > /etc/apt/sources.list.d/backports.list \
+ && apt-get update -qy \
  && echo -e '13\n33\n' \
   | apt-get install -qy --no-install-recommends \
     tzdata \
  && echo 'Etc/UTC' > /etc/timezone \
  && apt-get install -qy --no-install-recommends \
     build-essential \
-    ca-certificates \
-    curl \
-    devscripts \
-    equivs \
-    m4 \
     </dev/null \
- && apt-get clean
-
-VOLUME /src
-VOLUME /out
-VOLUME /etc/apt/sources.list.d
-WORKDIR /src
+ && apt-get clean \
+ && rm -rf /var/lib/apt/lists/* \
+ && echo "deb [trusted=yes] file:///localrepo/ ${DIST_CODENAME} main" > /etc/apt/sources.list.d/local.list
 
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/entrypoint"]
+ENV DIST_CODENAME="${DIST_CODENAME}"
 
 COPY entrypoint /usr/local/bin/
-COPY 99priority /etc/apt/preferences.d/
-RUN chmod +x /usr/local/bin/entrypoint
