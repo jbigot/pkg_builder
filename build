@@ -1,11 +1,27 @@
 #!/bin/bash
 set -e
 
+RPM_DISTS="fedora centos"
+fedora_RELEASES="30 31 rawhide"
+
+
 cd "$(dirname "$0")"
 SRCDIR="$PWD"
 
 cd "$(mktemp -d --tmpdir PKG_BUILDER-docker.XXXXXXXXXXXX.tmdir || exit 1)"
 trap 'rm -rf $PWD' EXIT
+
+for ID in ${RPM_DISTS}
+do
+	for DIST_RELEASE in $(eval echo "\${${ID}_RELEASES}")
+	do
+		echo "   ===> docker build pdidevel/${ID}_builder:${DIST_RELEASE}"
+		docker build -t "pdidevel/${ID}_builder:${DIST_RELEASE}" \
+			--build-arg "DIST_ID=${ID}" \
+			--build-arg "DIST_RELEASE=${DIST_RELEASE}" \
+			"${SRCDIR}/rpm_builder"
+	done
+done
 
 curl -o debian.csv https://salsa.debian.org/debian/distro-info-data/-/raw/master/debian.csv
 awk -F , '/^[0-9]/ {if (!$6 && $5) printf "%03d %s\n", $1, $3; else if (!$6) {print "990 " $3; print "999 sid"; exit }}' debian.csv > debian_code
@@ -53,3 +69,4 @@ do
 done
 docker tag pdidevel/debian_builder:stable pdidevel/debian_builder:latest
 docker tag "pdidevel/ubuntu_builder:$(tail -n 1 ubuntu|awk '{print $2}')" pdidevel/ubuntu_builder:latest
+

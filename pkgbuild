@@ -1,0 +1,431 @@
+#!/usr/bin/env python3
+
+import atexit
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from debian.changelog import Changelog, format_date
+from debian.deb822 import Deb822, _PkgRelationMixin
+from hashlib import sha256
+import json
+from os import chdir, cpu_count, link
+from pathlib import Path
+import re
+from shutil import copy2, copytree, rmtree
+import stat
+from subprocess import Popen, CalledProcessError, CompletedProcess, PIPE, STDOUT
+from sys import argv, stderr
+from tempfile import mkdtemp, TemporaryDirectory
+from time import sleep
+from typing import Iterable
+from urllib.error import URLError
+from urllib.request import url2pathname, urlopen
+import yaml
+
+from distinfo import ReleaseInfo, distributions
+
+PARALLELISM = min(32, 2*cpu_count() + 1)
+VERBOSE = False
+INTERACTIVE = True
+PASSPHRASE=""
+
+class GpgInfo:
+    def __init__(self, base_dir, cfg):
+        self.secring = base_dir / cfg.get('gpg', {}).get('file', 'key.gpg')
+        self.key = cfg.get('gpg', {}).get('id', None)
+        self.passphrase = PASSPHRASE
+
+RUNNING_PROCESSES = set()
+TERMINATE_REQUEST = False
+
+class CancellationException(Exception):
+    pass
+
+def cancellation_point():
+    if TERMINATE_REQUEST:
+        raise CancellationException('Termination request received')
+
+def cancellation_request():
+    global TERMINATE_REQUEST
+    TERMINATE_REQUEST = True
+    for p in RUNNING_PROCESSES:
+        if p.poll() is None: p.terminate()
+    
+
+def cheched_run(cmd, cwd=None):
+    with TemporaryDirectory() as tmp:
+        if cwd is None:
+            cwd = tmp
+        if VERBOSE:
+            stdout = None
+            print("$ "+' '.join([str(c) for c in cmd]))
+        else:
+            stdout = PIPE
+        cancellation_point()
+        with Popen(cmd, cwd=cwd, stdout=stdout, stderr=STDOUT, encoding='UTF8') as process:
+            try:
+                RUNNING_PROCESSES.add(process)
+                out, err = process.communicate()
+            except:
+                process.kill()
+                raise
+            finally:
+                RUNNING_PROCESSES.remove(process)
+                cancellation_point()
+            retcode = process.poll()
+            if retcode:
+                raise CalledProcessError(retcode, process.args, output=out, stderr=err)
+
+downloaded = {}
+download_dir = Path(mkdtemp(prefix='DOWNLOAD_DIR.'))
+atexit.register(rmtree, download_dir)
+def download(url, path):
+    cancellation_point()
+    if url in downloaded:
+        while downloaded[url] is None:
+            sleep(0.1)
+            cancellation_point()
+            if VERBOSE:
+                print("Downloading "+url+" : in cache!")
+    else:
+        downloaded[url] = None
+        temp_path = download_dir/sha256(bytes(url, 'UTF8')).hexdigest()
+        if VERBOSE:
+            print("Downloading "+url+" ...")
+        for timeout in [1, 2, 3, 5, 7]:
+            try:
+                with urlopen(url, timeout=timeout) as raw_src, temp_path.open('wb') as raw_dst:
+                    raw_dst.write(raw_src.read())
+                break
+            except URLError as err:
+                if timeout == 7:
+                    raise URLError('while downloading '+url+': '+str(err))
+        if VERBOSE:
+            print("Downloading "+url+" done!")
+        downloaded[url] = temp_path
+    try:
+        link(downloaded[url], path)
+    except:
+        copy2(downloaded[url], path)
+
+class Control(Deb822, _PkgRelationMixin):
+    _relationship_fields = [ 'build-depends', 'build-depends-indep', 'build-depends-arch' ]
+    
+    def __init__(self, *args, **kwargs):
+        Deb822.__init__(self, *args, **kwargs)
+        _PkgRelationMixin.__init__(self, *args, **kwargs)
+
+def build_deb_repo(tmp_dir, pkgs, gpg_info: GpgInfo, output_dir):
+    tmp_dir = tmp_dir/'aptly'
+    tmp_dir.mkdir()
+    aptly_confpath = tmp_dir/'aptly.conf'
+    
+    def aptly(*args):
+        cheched_run(['aptly', '-config='+str(aptly_confpath)]+list(args))
+    
+    aptly_cfg =  {
+        'architectures': ["amd64", "source"],
+        'gpgProvider': "internal",
+        'rootDir': str(tmp_dir),
+        'FileSystemPublishEndpoints': { 'default': {
+            'rootDir': str(output_dir),
+            'linkMethod': "copy",
+            } },
+        }
+    with aptly_confpath.open('w') as aptly_conf:
+        json.dump(aptly_cfg, aptly_conf)
+    
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    repos = set()
+    for pkg in pkgs:
+        if pkg.dist_release not in repos:
+            repos.add(pkg.dist_release)
+            aptly('repo', 'create', '-distribution='+pkg.dist_release.codename, pkg.dist_release.uid())
+            if pkg.dist_release.suite is not None:
+                aptly('repo', 'create', '-distribution='+pkg.dist_release.suite, pkg.dist_release.uid()+':'+pkg.dist_release.suite)
+        aptly('repo', 'include', 
+              #'-keyring='+str(gpg_info.pubring),
+              '-keyring='+str(gpg_info.secring),
+              '-no-remove-files', '-repo='+pkg.dist_release.uid(), str(pkg.outdir))
+        if pkg.dist_release.suite is not None:
+            aptly('repo', 'include',
+                  #'-keyring='+str(gpg_info.pubring),
+                  '-keyring='+str(gpg_info.secring),
+                  '-no-remove-files', '-repo='+pkg.dist_release.uid()+':'+pkg.dist_release.suite, str(pkg.outdir))
+    for dist_release in repos:
+        publish_repo = ['publish', 'repo',
+                        #'-keyring='+str(gpg_info.pubring),
+                        '-secret-keyring='+str(gpg_info.secring)]
+        if gpg_info.key is not None:
+            publish_repo.append('-gpg-key='+gpg_info.key[-8:])
+        if gpg_info.passphrase != '':
+            publish_repo.append('-passphrase='+gpg_info.passphrase)
+        aptly(*publish_repo, dist_release.uid(), 'filesystem:default:'+dist_release.distrib.id)
+        if dist_release.suite is not None:
+            aptly(*publish_repo, dist_release.uid()+':'+dist_release.suite, 'filesystem:default:'+dist_release.distrib.id)
+
+class DebPackageBuilder:
+    def __init__(self, tmp_dir: Path, dist_release:ReleaseInfo, base_dir: Path, gpg_info: GpgInfo, name: str, pkg_data: dict):
+        self._tmp_dir = tmp_dir/(name+'.'+dist_release.uid()+'.deb-build')
+        self.dist_release = dist_release
+        self._gpg_info = gpg_info
+        self._name = name
+        self._debian_dir = base_dir/pkg_data['debian']
+        self._orig_url = pkg_data['orig']
+        self._finished = False
+        self._depends = set([ self ]) # self depend => never ready
+        self.outdir = self._tmp_dir/'output'
+    
+    @staticmethod
+    def order(pkglst):
+        providers = {} # maps b => s when the binary package b is generated by the source package s
+        for s in pkglst:
+            with (s._debian_dir/'control').open() as raw_control:
+                for pkg in Deb822.iter_paragraphs(raw_control, strict={'whitespace-separates-paragraphs': True}):
+                    if 'Package' in pkg:
+                        providers[(pkg['Package'], s.dist_release)] = s
+        for s in pkglst:
+            s._depends = set()
+            with (s._debian_dir/'control').open() as raw_control :
+                control = Control(raw_control)
+                for dep_list in ['build-depends', 'build-depends-indep', 'build-depends-arch']:
+                    for and_member in control.relations[dep_list]:
+                        for or_member in and_member:
+                            if (or_member['name'], s.dist_release) in providers:
+                                s._depends.add(providers[(or_member['name'], s.dist_release)])
+    def ready(self):
+        return all(map(DebPackageBuilder.finished, self._depends))
+    
+    def finished(self):
+        return self._finished
+    
+    def incomings(self):
+        return set([ e for el in self._depends for e in el.incomings() ]) | set([self])
+    
+    def run(self):
+        cancellation_point()
+        try:
+            print("\033[34m[STARTED]\033[39m * building deb for "+self._name+' on '+str(self.dist_release)+"...")
+            
+            # Setup our directories
+            self._tmp_dir.mkdir()
+            self.outdir.mkdir()
+            pkg_dir = self._tmp_dir/'pkg'
+            pkg_dir.mkdir()
+            debian_dir = Path(copytree(self._debian_dir, pkg_dir/'debian'))
+            
+            # Add the bpo to the version string
+            with (debian_dir/'changelog').open() as raw_changelog:
+                changelog = Changelog(raw_changelog)
+            target_releases = set()
+            for tgt in changelog.distributions.split(' '):
+                target_releases |= set(self.dist_release.distrib.releases(codename=re.sub(r'-backports.*', '', tgt)))
+                target_releases |= set(self.dist_release.distrib.releases(suite=re.sub(r'-backports.*', '', tgt)))
+            if len(target_releases)>0 and self.dist_release < min(target_releases):
+                changelog.new_block(
+                    package=changelog.package,
+                    version=str(changelog.version)+'~bpo'+self.dist_release.id,
+                    distributions=self.dist_release.codename,
+                    urgency=changelog.urgency,
+                    changes=['  * Backport rebuild for '+str(self.dist_release)],
+                    author=changelog.author,
+                    date=format_date())
+                with (debian_dir/'changelog').open('w') as raw_changelog:
+                    changelog.write_to_open_file(raw_changelog)
+            elif self.dist_release not in target_releases:
+                self._finished = True
+                print("\033[36m[SKIPPED]\033[39m * building deb for "+self._name+' on '+str(self.dist_release)+"!")
+                return
+            
+            # Download the orig file
+            self._orig_url = self._orig_url.format(upstream_version=changelog.upstream_version, package=changelog.package)
+            download(self._orig_url, pkg_dir/(changelog.package+'_'+changelog.upstream_version+'.orig.tar'+(Path(url2pathname(self._orig_url)).suffix)))
+            
+            # Generate the dependencies .deb
+            deps_dir = self._tmp_dir/'deps'
+            deps_dir.mkdir()
+            cheched_run(['mk-build-deps', '-P'+self.dist_release.distrib.id+','+self.dist_release.codename, pkg_dir/'debian'/'control'], cwd=deps_dir)
+            
+            localrepo = self._tmp_dir/'repo'
+            build_deb_repo(self._tmp_dir, self.incomings(), self._gpg_info, localrepo)
+            
+            cheched_run(['docker', 'run', '--rm', '-eDH_VERBOSE=1',
+                        '--mount', 'type=bind,source='+str(pkg_dir)+',target=/src',
+                        '--mount', 'type=bind,source='+str(deps_dir)+',target=/deps',
+                        '--mount', 'type=bind,source='+str(localrepo/self.dist_release.distrib.id)+',target=/localrepo',
+                        '--tmpfs', '/tmp:exec',
+                        'pdidevel/'+self.dist_release.distrib.id+'_builder:'+self.dist_release.codename,
+                        '-j8', '-sa', '-P'+self.dist_release.distrib.id+','+self.dist_release.codename, '--no-sign'
+                        ])
+            
+            # Signing the generated packages
+            gpg_kr = self._tmp_dir/'gpg-kr'
+            (self._tmp_dir/'gnupg').mkdir(0o700)
+            cheched_run(['gpg2', '--batch', '--homedir', str(self._tmp_dir/'gnupg'), '--passphrase', self._gpg_info.passphrase, '--import', self._gpg_info.secring], cwd=pkg_dir)
+            with gpg_kr.open('w') as gpg_kr_raw:
+                print('#!/bin/sh', file=gpg_kr_raw)
+                print('exec gpg2 --batch --homedir "'+str(self._tmp_dir/'gnupg')+'" --passphrase "'+self._gpg_info.passphrase+'" "$@"', file=gpg_kr_raw)
+            gpg_kr.chmod(0o777)
+            cmd=['debsign', '--no-conf', '-p'+str(gpg_kr), '--debs-dir', str(pkg_dir)]
+            if self._gpg_info.key is not None:
+                cmd.append('-k'+self._gpg_info.key)
+            cheched_run(cmd, cwd=pkg_dir)
+            
+            # Moving the generated packages to the output directory
+            for f in pkg_dir.iterdir():
+                if f.is_file():
+                    f.rename(self.outdir/f.name)
+            
+            self._finished = True
+            print("\033[32m[SUCCESS]\033[39m * building deb for "+self._name+' on '+str(self.dist_release)+"!")
+        except CancellationException:
+            print("\033[33m[CANCEL]\033[39m  * building deb for "+self._name+' on '+str(self.dist_release)+"!")
+            raise
+        except:
+            print("\033[31m[FAILURE]\033[39m * building deb for "+self._name+' on '+str(self.dist_release)+"!")
+            raise
+
+class RpmPackageBuilder:
+    def __init__(self, tmp_dir: Path, dist_release:ReleaseInfo, gpg_info: GpgInfo, name: str, pkg_data: dict):
+        self._tmp_dir = tmp_dir/(name+'.'+str(distrib)+'.rpm-build')
+        self._dist_release = dist_release
+        self._gpg_info = gpg_info
+        self._name = name
+        self._spec = pkg_data['spec']
+        self._depends = set([ self ]) # self depend => never ready
+        self.outdir = None
+    
+    @staticmethod
+    def order(pkglst):
+        pass
+    
+    def ready(self):
+        return all(map(RpmPackageBuilder.finished, self._depends))
+    
+    def finished(self):
+        return self.done
+    
+    def incomings(self):
+        return set([ e for el in self._depends for e in el.incomings() ]) | set([self])
+    
+    def run(self):
+        cancellation_point()
+        try:
+            print("\033[34m[STARTED]\033[39m * building rpm for "+self._name+' ('+str(self.distrib)+")...")
+            
+            # Setup our directories
+            self._tmp_dir.mkdir()
+            self.outdir.mkdir()
+            pkg_dir = self._tmp_dir/'pkg'
+            pkg_dir.mkdir()
+            copy2(self._spec, pkg_dir/self._spec.name)
+            self._spec = pkg_dir/self._spec.name
+            
+            localrepo = self._tmp_dir/'repo'
+            #RpmRepoBuilder(self.tmp_dir, self.incomings(), localrepo).run()
+            
+            cheched_run(['docker', 'run', '--rm',
+                        '--mount', 'type=bind,source='+str(pkg_dir)+',target=/src',
+                        '--mount', 'type=bind,source='+str(localrepo/self.distrib.distrib)+',target=/localrepo',
+                        '--tmpfs', '/tmp:exec',
+                        'pdidevel/'+self.distrib.distrib+'_builder:'+self.distrib.name
+                        ])
+            
+            for f in pkg_dir.iterdir():
+                if f.suffix == '.rpm':
+                    f.rename(self.outdir/f.name)
+            
+            print("\033[32m[SUCCESS]\033[39m * building rpm for "+self._name+' ('+str(self.distrib)+")!")
+            self.done = True
+        except CancellationException:
+            print("\033[33m[CANCEL]\033[39m  * building rpm for "+self._name+' ('+str(self.distrib)+")!")
+            raise
+        except:
+            print("\033[31m[FAILURE]\033[39m * building rpm for "+self._name+' ('+str(self.distrib)+")!")
+            raise
+        
+
+def build_packages(cfg_path):
+    base_dir = cfg_path.parent.absolute()
+    tmp_dir = Path(mkdtemp(prefix='PKGBUILD.'))
+    atexit.register(rmtree, tmp_dir)
+    with cfg_path.open('r') as cfg_file:
+        cfg = yaml.safe_load(cfg_file)
+    deb_releases = set()
+    rpm_releases = set()
+    for dist_id, release_id_lst in cfg['distribs'].items():
+        dist = next(distributions(id=dist_id))
+        if 'debian' in (set(dist.id_like)|set([dist.id])):
+            releases = deb_releases
+        elif 'fedora' in (set(dist.id_like)|set([dist.id])):
+            releases = rpm_releases
+        if type(release_id_lst) == str:
+            release_id_lst = [release_id_lst]
+        for release_id in release_id_lst:
+            if release_id == 'supported':
+                releases.update(dist.releases(supported=True))
+            else:
+                releases.update(dist.releases(codename=release_id))
+                releases.update(dist.releases(suite=release_id))
+                releases.update(dist.releases(id=release_id))
+    
+    gpg_info = GpgInfo(base_dir, cfg)
+    
+    packages = set()
+    for name, p in cfg['packages'].items():
+        for release in deb_releases:
+            packages.add(DebPackageBuilder(tmp_dir, release, base_dir, gpg_info, name, p))
+    DebPackageBuilder.order(packages)
+    
+    with ThreadPoolExecutor(max_workers=PARALLELISM) as e:
+        try:
+            in_progress = set()
+            waiting = set(packages)
+            while (len(waiting)+len(in_progress))>0:
+                for pkg in set(filter(DebPackageBuilder.ready, waiting)):
+                    waiting.remove(pkg)
+                    in_progress.add(e.submit(DebPackageBuilder.run, pkg))
+                if len(in_progress) == 0:
+                    raise Exception('Invalid scheduling: no task ready')
+                done, in_progress = wait(in_progress, return_when=FIRST_COMPLETED)
+                for d in done:
+                    d.result()
+        except:
+            e.shutdown(False)
+            print("\033[33m[WARNING]\033[39m * Asking remaining tasks to terminate...")
+            cancellation_request()
+            raise
+        
+        build_deb_repo(tmp_dir, packages, gpg_info, base_dir/cfg.get('output_path', 'repositories'))
+            
+
+def main():
+    try:
+        base_dir = Path.cwd().absolute()
+        
+        if len(argv) > 2:
+            print('Usage : '+argv[0]+' [<build.conf>]')
+            
+        if len(argv) < 2:
+            cfg_path = base_dir/'build.conf'
+        else:
+            cfg_path = base_dir/argv[-1]
+        
+        build_packages(cfg_path)
+    except CalledProcessError as e:
+        print("\033[31m[ERROR]\033[39m   * Error while running subprocess:\n$ "+' '.join([str(ce) for ce in e.cmd]), file=stderr)
+        if e.stdout is not None:
+            print(e.stdout, file=stderr)
+        if e.stderr is not None:
+            print("\033[33m"+e.stderr+"\033[39m", file=stderr)
+        print(file=stderr)
+        if INTERACTIVE:
+            input("Press Enter to clean-up and quit...")
+        raise
+    except Exception as e:
+        print(e)
+        if INTERACTIVE:
+            input("Press Enter to clean-up and continue...")
+        raise
+    
+if __name__== '__main__':
+    main()

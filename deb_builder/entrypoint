@@ -1,29 +1,39 @@
 #!/bin/bash
-set -x
-
 trap 'echo received signal, quitting...; exit 1' INT TERM
+set -xe
 
-apt-get -y update || exit 1
-dpkg -R --unpack /deps
-apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install
-dpkg -R --unpack /deps
-apt-get -t "${DIST_CODENAME}-backports" -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install
-dpkg -R --unpack /deps
+if [ -d /localrepo/dists ]
+then
+	echo "deb [trusted=yes] file:///localrepo/ ${DIST_CODENAME} main" > /etc/apt/sources.list.d/local.list
+fi
+
+bgrun() {
+"$@" &
+wait "$!"
+}
+
+bgrun apt-get -y update
+bgrun dpkg -R --unpack /deps || true
+bgrun apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install || true
+bgrun dpkg -R --unpack /deps || true
+bgrun apt-get -t "${DIST_CODENAME}-backports" -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install || true
+bgrun dpkg -R --unpack /deps || true
 cat<<EOF > /etc/apt/preferences.d/zzz_priority
 Package: *
 Pin: release a=*
 Pin-Priority:500
 EOF
-apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install
-dpkg -R --install /deps || exit 1
+bgrun apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install || true
+bgrun dpkg -R --install /deps
 
-mkdir /tmp/src
-cp -r /src/* /tmp/src
-cd /tmp/src || exit 1
-cd "$(find . -mindepth 1 -maxdepth 1 -type d || exit 1)" || exit 1
-dpkg-buildpackage "$@" || exit 1
+mkdir -p /tmp/src
+bgrun tar -C /tmp/src -xf /src/*.orig.tar.*
+cd /tmp/src/*
+cp -a /src/debian .
+cp /src/*.orig.tar.* /tmp/src
+bgrun dpkg-buildpackage "$@"
 
-cd /tmp/src || exit 1
-rm -rf "$(find . -mindepth 1 -maxdepth 1 -type d || exit 1)" || exit 1
-chown -R $(stat -c '%u:%g' /src) *
+cd /tmp/src
+find /tmp/src -mindepth 1 -type d -prune -execdir rm -rf '{}' '+'
+chown -R $(stat -c '%u:%g' /src) .
 mv -t /src -- *

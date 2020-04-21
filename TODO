@@ -1,0 +1,19 @@
+* config & CLI parameters
+* scheduling by generating github tasks
+* provide github actions
+* split into modules
+* support other archs
+* use python for ./build
+
+deb:
+* provide key in repo
+* provide key package
+* handle arch & profile for deps
+* use package from upper distro if possible
+* provide all info when publishing, including suite
+* support http/local URLs for debian & orig
+
+rpm:
+* have the distro DB
+* build RPMs
+* parse deps

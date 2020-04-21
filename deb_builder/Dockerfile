@@ -21,10 +21,9 @@ RUN echo "${BACKPORT_LINE}" > /etc/apt/sources.list.d/backports.list \
     build-essential \
     </dev/null \
  && apt-get clean \
- && rm -rf /var/lib/apt/lists/* \
- && echo "deb [trusted=yes] file:///localrepo/ ${DIST_CODENAME} main" > /etc/apt/sources.list.d/local.list
+ && rm -rf /var/lib/apt/lists/*
 
-ENTRYPOINT ["/bin/bash", "/usr/local/bin/entrypoint"]
+ENTRYPOINT ["/bin/bash", "/entrypoint"]
 ENV DIST_CODENAME="${DIST_CODENAME}"
 
-COPY entrypoint /usr/local/bin/
+COPY entrypoint /
