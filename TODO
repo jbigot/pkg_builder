@@ -4,16 +4,20 @@
 * split into modules
 * support other archs
 * use python for ./build
+* support disabling on specific distro
 
 deb:
 * provide key in repo
 * provide key package
+* provide repo installer script
+* handle dev. key in addition to repo key
 * handle arch & profile for deps
 * use package from upper distro if possible
 * provide all info when publishing, including suite
 * support http/local URLs for debian & orig
 
 rpm:
-* have the distro DB
-* build RPMs
-* parse deps
+* generate final repo
+* generate .repo file
+* sign packages
+* distro DB from reliable source

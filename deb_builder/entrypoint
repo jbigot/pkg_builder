@@ -2,15 +2,15 @@
 trap 'echo received signal, quitting...; exit 1' INT TERM
 set -xe
 
-if [ -d /localrepo/dists ]
-then
-	echo "deb [trusted=yes] file:///localrepo/ ${DIST_CODENAME} main" > /etc/apt/sources.list.d/local.list
-fi
-
 bgrun() {
 "$@" &
 wait "$!"
 }
+
+if [ -d /localrepo/dists ]
+then
+	echo "deb [trusted=yes] file:///localrepo/ ${DIST_CODENAME} main" > /etc/apt/sources.list.d/local.list
+fi
 
 bgrun apt-get -y update
 bgrun dpkg -R --unpack /deps || true

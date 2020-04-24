@@ -1,13 +1,26 @@
 #!/bin/bash
-set -e
-set -x
-
 trap 'echo received signal, quitting...; exit 1' INT TERM
+set -xe
+
+bgrun() {
+"$@" &
+wait "$!"
+}
+
+cat<<EOF > /tmp/localrepo.repo
+[localrepo]
+name=localrepo
+type=rpm-md
+baseurl=file:///localrepo/
+gpgcheck=0
+enabled=1
+EOF
+yum-config-manager --add-repo /tmp/localrepo.repo
 
 cd /tmp
-yum-builddep -y /src/*.spec
+bgrun yum-builddep -y /src/*.spec
 
-rpmbuild \
+bgrun rpmbuild \
 	--define "_topdir    /tmp" \
 	--define "_builddir  %{_topdir}/BUILD" \
 	--define "_rpmdir    %{_topdir}/output" \
