@@ -22,19 +22,22 @@ def main():
                        '--build-arg', 'DIST_RELEASE='+docker_release,
                        '--build-arg', 'DIST_CODENAME='+str(release.codename),
                        builder]).returncode
-            if res == 0 and release_id != release.codename:
-                print("\n\n   ===> docker tag "+'pdidevel/'+distrib.id+'_builder:'+release.codename+" <===\n")
-                res = run(['docker', 'tag', docker_image,
-                           'pdidevel/'+distrib.id+'_builder:'+release.codename]).returncode
-            if res == 0 and release.suite is not None:
-                print("\n\n   ===> docker tag "+'pdidevel/'+distrib.id+'_builder:'+release.suite+" <===\n")
-                res = run(['docker', 'tag', docker_image,
-                           'pdidevel/'+distrib.id+'_builder:'+release.suite]).returncode
-            if (res == 0 and release.supported() and
-                    all([r <= release for r in distrib.releases(supported=True)])):
-                print("\n\n   ===> docker tag "+'pdidevel/'+distrib.id+'_builder:latest'+" <===\n")
-                res = run(['docker', 'tag', docker_image,
-                           'pdidevel/'+distrib.id+'_builder:latest']).returncode
+            if res == 0:
+                if release_id != release.codename:
+                    print("\n\n   ===> docker tag "+'pdidevel/'+str(distrib.id)+'_builder:'
+                          +str(release.codename)+" <===\n")
+                    res += run(['docker', 'tag', docker_image,
+                            'pdidevel/'+distrib.id+'_builder:'+release.codename]).returncode
+                if release.suite is not None:
+                    print("\n\n   ===> docker tag "+'pdidevel/'+distrib.id+'_builder:'
+                          +release.suite+" <===\n")
+                    res += run(['docker', 'tag', docker_image,
+                            'pdidevel/'+distrib.id+'_builder:'+release.suite]).returncode
+                if (release.supported() and
+                        all([r <= release for r in distrib.releases(supported=True)])):
+                    print("\n\n   ===> docker tag "+'pdidevel/'+distrib.id+'_builder:latest <===\n')
+                    res += run(['docker', 'tag', docker_image,
+                            'pdidevel/'+distrib.id+'_builder:latest']).returncode
             if res == 0:
                 print("\n\n   ===> DONE buidling "+docker_image)
             else:
