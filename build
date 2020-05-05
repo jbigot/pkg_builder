@@ -23,11 +23,11 @@ def main():
                        '--build-arg', 'DIST_CODENAME='+str(release.codename),
                        builder]).returncode
             if res == 0:
-                if release_id != release.codename:
+                if release.codename is not None and release_id != release.codename:
                     print("\n\n   ===> docker tag "+'pdidevel/'+str(distrib.id)+'_builder:'
                           +str(release.codename)+" <===\n")
                     res += run(['docker', 'tag', docker_image,
-                            'pdidevel/'+distrib.id+'_builder:'+release.codename]).returncode
+                            'pdidevel/'+str(distrib.id)+'_builder:'+str(release.codename)]).returncode
                 if release.suite is not None:
                     print("\n\n   ===> docker tag "+'pdidevel/'+distrib.id+'_builder:'
                           +release.suite+" <===\n")
