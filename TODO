@@ -1,23 +1,28 @@
 * config & CLI parameters
-* scheduling by generating github tasks
+* add required repo in Docker
+* generate docker image per package with deps
+* add a continue  + publish partial repo
 * provide github actions
+* scheduling by generating github tasks
 * split into modules
 * support other archs
-* use python for ./build
-* support disabling on specific distro
+* new skip syntax
 
 deb:
 * provide key in repo
 * provide key package
 * provide repo installer script
-* handle dev. key in addition to repo key
+* use email from key in changelog
+* always add an entry in changelog: ~pdidev(~bpo<id>).timetag
 * handle arch & profile for deps
 * use package from upper distro if possible
 * provide all info when publishing, including suite
-* support http/local URLs for debian & orig
+* set profile per distrib
 
 rpm:
-* generate final repo
-* generate .repo file
 * sign packages
+* generate .repo file
 * distro DB from reliable source
+* support dnf/yum choice
+* pre-DL files
+* handle the Release: tag in spec

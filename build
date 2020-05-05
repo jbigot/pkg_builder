@@ -1,72 +1,45 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env python3
+from subprocess import run
 
-RPM_DISTS="fedora centos"
-fedora_RELEASES="30 31 rawhide"
+from distinfo import ReleaseInfo, distributions
 
 
-cd "$(dirname "$0")"
-SRCDIR="$PWD"
+def main():
+    for distrib in distributions():
+        for release in distrib.releases(eoled=False):
+            release_id = release.id
+            builder = 'rpm_builder'
+            if 'debian' in distrib.id_like:
+                release_id = release.codename
+                builder = 'deb_builder'
+            docker_image = 'pdidevel/'+distrib.id+'_builder:'+release_id
+            docker_release = release_id
+            if 'debian' == distrib.id:
+                docker_release = docker_release+'-slim'
+            print("\n\n   ===> docker build "+docker_image+" <===\n")
+            res = run(['docker', 'build', '--force-rm', '-t', docker_image,
+                       '--build-arg', 'DIST_ID='+distrib.id,
+                       '--build-arg', 'DIST_RELEASE='+docker_release,
+                       '--build-arg', 'DIST_CODENAME='+str(release.codename),
+                       builder]).returncode
+            if res == 0 and release_id != release.codename:
+                print("\n\n   ===> docker tag "+'pdidevel/'+distrib.id+'_builder:'+release.codename+" <===\n")
+                res = run(['docker', 'tag', docker_image,
+                           'pdidevel/'+distrib.id+'_builder:'+release.codename]).returncode
+            if res == 0 and release.suite is not None:
+                print("\n\n   ===> docker tag "+'pdidevel/'+distrib.id+'_builder:'+release.suite+" <===\n")
+                res = run(['docker', 'tag', docker_image,
+                           'pdidevel/'+distrib.id+'_builder:'+release.suite]).returncode
+            if (res == 0 and release.supported() and
+                    all([r <= release for r in distrib.releases(supported=True)])):
+                print("\n\n   ===> docker tag "+'pdidevel/'+distrib.id+'_builder:latest'+" <===\n")
+                res = run(['docker', 'tag', docker_image,
+                           'pdidevel/'+distrib.id+'_builder:latest']).returncode
+            if res == 0:
+                print("\n\n   ===> DONE buidling "+docker_image)
+            else:
+                print("\n\n   ===> ERROR buidling "+docker_image, res)
 
-cd "$(mktemp -d --tmpdir PKG_BUILDER-docker.XXXXXXXXXXXX.tmdir || exit 1)"
-trap 'rm -rf $PWD' EXIT
 
-for ID in ${RPM_DISTS}
-do
-	for DIST_RELEASE in $(eval echo "\${${ID}_RELEASES}")
-	do
-		echo "   ===> docker build pdidevel/${ID}_builder:${DIST_RELEASE}"
-		docker build -t "pdidevel/${ID}_builder:${DIST_RELEASE}" \
-			--build-arg "DIST_ID=${ID}" \
-			--build-arg "DIST_RELEASE=${DIST_RELEASE}" \
-			"${SRCDIR}/rpm_builder"
-	done
-done
-
-curl -o debian.csv https://salsa.debian.org/debian/distro-info-data/-/raw/master/debian.csv
-awk -F , '/^[0-9]/ {if (!$6 && $5) printf "%03d %s\n", $1, $3; else if (!$6) {print "990 " $3; print "999 sid"; exit }}' debian.csv > debian_code
-paste -d ' ' <(tac debian_code) <(cat<<EOF
-unstable
-testing
-stable
-oldstable
-oldoldstable
-EOF
-) | grep -v '^ ' | tac > debian
-
-curl -o ubuntu.csv https://salsa.debian.org/debian/distro-info-data/-/raw/master/ubuntu.csv
-awk -F , -v date=$(date +%Y%m%d) '/^[0-9]/ {gsub("-", "", $6); gsub(" .*","",$1); if ($6>date) printf "%03d %s %s\n", $1, $3, $3}' ubuntu.csv > ubuntu
-
-for ID in debian ubuntu
-do
-	for VERSION_CODENAME in $(awk '{print $2}' "${ID}")
-	do
-		VERSION_LEVEL="$(awk -v VERSION_CODENAME=${VERSION_CODENAME} '$2==VERSION_CODENAME {print $3}' "${ID}")"
-		DIST_RELEASE="${VERSION_CODENAME}"
-		BACKPORT_LINE=''
-		if [ "x${ID}" == "xdebian" ]
-		then
-			DIST_RELEASE="${VERSION_CODENAME}-slim"
-			if [ "x${VERSION_LEVEL}" != 'xtesting'  ] && [ "x${VERSION_LEVEL}" != 'xunstable' ]
-			then
-				BACKPORT_LINE="deb http://deb.debian.org/debian ${VERSION_CODENAME}-backports main"
-				if [ "x${VERSION_LEVEL}" != 'xstable'  ]
-				then
-					BACKPORT_LINE="${BACKPORT_LINE}"$'\n'"deb http://deb.debian.org/debian ${VERSION_CODENAME}-backports-sloppy main"
-				fi
-			fi
-		fi
-		echo "   ===> docker build pdidevel/${ID}_builder:${VERSION_CODENAME}"
-		docker build -t "pdidevel/${ID}_builder:${VERSION_CODENAME}" \
-			--build-arg "DIST_ID=${ID}" \
-			--build-arg "DIST_RELEASE=${DIST_RELEASE}" \
-			--build-arg "BACKPORT_LINE=${BACKPORT_LINE}" \
-			--build-arg "DIST_CODENAME=${VERSION_CODENAME}" \
-			"${SRCDIR}/deb_builder"
-		docker tag "pdidevel/${ID}_builder:${VERSION_CODENAME}" \
-			"pdidevel/${ID}_builder:${VERSION_LEVEL}"
-	done
-done
-docker tag pdidevel/debian_builder:stable pdidevel/debian_builder:latest
-docker tag "pdidevel/ubuntu_builder:$(tail -n 1 ubuntu|awk '{print $2}')" pdidevel/ubuntu_builder:latest
-
+if __name__ == '__main__':
+    main()

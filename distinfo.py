@@ -11,11 +11,13 @@ from urllib.request import urlopen
 
 @total_ordering
 class ReleaseInfo:
-    def __init__(self, distrib, name: str, id: str, order: int, codename: str = None, cpe: str = None, suite: str = None, release_date: date = date.max, eol_date: date = date.max):
+    def __init__(self, distrib, name: str, id: str, order: int, codename: str = None,
+                 cpe: str = None, suite: str = None, release_date: date = date.max,
+                 eol_date: date = date.max):
         self.distrib = distrib
         self.name = name
         self.id = id
-        self.order = order
+        self._order = order
         self.codename = codename
         self.cpe = cpe
         self.suite = suite
@@ -23,23 +25,26 @@ class ReleaseInfo:
         self.eol_date = eol_date
 
     def uid(self):
-        return self.distrib.uid()+'@'+self.id+('' if self.codename is None else '@'+self.codename)
+        return self.distrib.uid()+'-'+self.id+('' if self.codename is None else '-'+self.codename)
 
     def released(self):
         return self.release_date <= date.today()
 
+    def eoled(self):
+        return self.eol_date <= date.today()
+
     def supported(self):
-        return self.released() and self.eol_date > date.today()
+        return self.released() and not self.eoled()
 
     def __lt__(self, other):
         if other.distrib != self.distrib:
             return NotImplemented
-        return self.order < other.order
+        return self._order < other._order
 
     def __eq__(self, other):
         if other.distrib != self.distrib:
             return NotImplemented
-        return self.order == other.order
+        return self._order == other._order
 
     def __hash__(self):
         return hash(self.uid())
@@ -58,7 +63,9 @@ class DistInfo:
     def uid(self):
         return self.id
 
-    def releases(self, id: str = None, codename: str = None, cpe: str = None, suite: str = None, release_date: date = None, eol_date: date = None, released: bool = None, supported: bool = None) -> List[ReleaseInfo]:
+    def releases(self, id: str = None, codename: str = None, cpe: str = None, suite: str = None,
+                 release_date: date = None, eol_date: date = None, released: bool = None,
+                 supported: bool = None, eoled: bool = None) -> List[ReleaseInfo]:
         def __filter_func(rel: DistInfo):
             if id is not None and rel.id != str(id):
                 return False
@@ -75,6 +82,8 @@ class DistInfo:
             if released is not None and rel.released() != bool(released):
                 return False
             if supported is not None and rel.supported() != bool(supported):
+                return False
+            if eoled is not None and rel.eoled() != bool(eoled):
                 return False
             return True
         return sorted(filter(__filter_func, self._releases))
@@ -100,7 +109,8 @@ def distributions(id: str = None, id_like: set = set()) -> Iterator[DistInfo]:
 
 
 def __debubun_rel(distribution: DistInfo) -> DistInfo:
-    with urlopen('https://salsa.debian.org/debian/distro-info-data/-/raw/master/'+distribution.id+'.csv') as rel_data:
+    with urlopen('https://salsa.debian.org/debian/distro-info-data/-/raw/master/' +
+                 distribution.id+'.csv') as rel_data:
         csv_data = csv.reader(TextIOWrapper(rel_data), dialect='unix')
         # skip the title line: version,codename,series,created,release,eol,eol-server
         next(csv_data)
@@ -142,14 +152,25 @@ def __init_distribs():
     __distribs.add(ubuntu)
 
     fedora = DistInfo("Fedora", 'fedora')
-    fedora._releases.add(ReleaseInfo(fedora, "Rawhide", 'rawhide', 33))
+    fedora._releases.add(ReleaseInfo(fedora, "Rawhide", '33', 33, suite='rawhide'))
     fedora._releases.add(ReleaseInfo(fedora, "32", '32', 32,
                                      cpe='cpe:/o:fedoraproject:fedora:32', suite='branched'))
     fedora._releases.add(ReleaseInfo(fedora, "31", '31', 31,
-                                     cpe='cpe:/o:fedoraproject:fedora:31', release_date=date(2019, 10, 29)))
+                                     cpe='cpe:/o:fedoraproject:fedora:31',
+                                     release_date=date(2019, 10, 29)))
     fedora._releases.add(ReleaseInfo(fedora, "30", '30', 30,
-                                     cpe='cpe:/o:fedoraproject:fedora:30', release_date=date(2019,  5,  7)))
+                                     cpe='cpe:/o:fedoraproject:fedora:30',
+                                     release_date=date(2019,  5,  7)))
     __distribs.add(fedora)
+
+    centos = DistInfo("CentOS Linux", 'centos', id_like=['rhel', 'fedora'])
+    centos._releases.add(ReleaseInfo(centos, "8", '8', 8, cpe='cpe:/o:centos:centos:8',
+                                     release_date=date(2019, 9, 24), eol_date=date(2024, 5, 1)))
+    centos._releases.add(ReleaseInfo(centos, "7", '7', 7, cpe='cpe:/o:centos:centos:7',
+                                     release_date=date(2014, 7, 7), eol_date=date(2020, 8, 6)))
+    centos._releases.add(ReleaseInfo(centos, "6", '6', 6, cpe='cpe:/o:centos:centos:6',
+                                     release_date=date(2011, 7, 10), eol_date=date(2017, 5, 10)))
+    __distribs.add(centos)
 
 
 __init_distribs()

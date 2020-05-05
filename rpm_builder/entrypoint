@@ -2,6 +2,8 @@
 trap 'echo received signal, quitting...; exit 1' INT TERM
 set -xe
 
+test -e /usr/lib64/nosync/nosync.so && export LD_PRELOAD="/usr/lib64/nosync/nosync.so"
+
 bgrun() {
 "$@" &
 wait "$!"
@@ -15,20 +17,21 @@ baseurl=file:///localrepo/
 gpgcheck=0
 enabled=1
 EOF
-yum-config-manager --add-repo /tmp/localrepo.repo
+dnf config-manager --add-repo /tmp/localrepo.repo || true
+dnf config-manager --set-enabled PowerTools || true
+dnf -y install epel-release || true
 
-cd /tmp
-bgrun yum-builddep -y /src/*.spec
+bgrun dnf builddep -y /src/*.spec
 
-bgrun rpmbuild \
+bgrun bash -lc 'rpmbuild \
 	--define "_topdir    /tmp" \
 	--define "_builddir  %{_topdir}/BUILD" \
 	--define "_rpmdir    %{_topdir}/output" \
 	--define "_sourcedir %{_topdir}/SOURCES" \
 	--define "_specdir   /src" \
-	--define "_srcrpmdir %{_topdir}/output" \
+	--define "_srcrpmdir %{_topdir}/output/src" \
 	--define "_tmppath   tmp" \
 	--undefine=_disable_source_fetch \
-	-ba /src/*.spec
-find /tmp/output -type f -execdir chown "$(stat -c '%u:%g' "/src")" '{}' '+' 
-find /tmp/output -type f -execdir mv '{}' /src ';'
+	-ba /src/*.spec'
+chown -R $(stat -c '%u:%g' /src) /tmp/output
+find /tmp/output -type f -name '*.rpm' -execdir mv -t /src -- '{}' '+'

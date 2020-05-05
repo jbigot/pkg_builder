@@ -3,7 +3,7 @@ trap 'echo received signal, quitting...; exit 1' INT TERM
 set -xe
 
 bgrun() {
-"$@" &
+eatmydata "$@" &
 wait "$!"
 }
 
@@ -13,18 +13,8 @@ then
 fi
 
 bgrun apt-get -y update
-bgrun dpkg -R --unpack /deps || true
-bgrun apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install || true
-bgrun dpkg -R --unpack /deps || true
-bgrun apt-get -t "${DIST_CODENAME}-backports" -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install || true
-bgrun dpkg -R --unpack /deps || true
-cat<<EOF > /etc/apt/preferences.d/zzz_priority
-Package: *
-Pin: release a=*
-Pin-Priority:500
-EOF
-bgrun apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install || true
-bgrun dpkg -R --install /deps
+bgrun dpkg -R --unpack /deps
+bgrun apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install
 
 mkdir -p /tmp/src
 bgrun tar -C /tmp/src -xf /src/*.orig.tar.*
@@ -33,7 +23,5 @@ cp -a /src/debian .
 cp /src/*.orig.tar.* /tmp/src
 bgrun dpkg-buildpackage "$@"
 
-cd /tmp/src
-find /tmp/src -mindepth 1 -type d -prune -execdir rm -rf '{}' '+'
-chown -R $(stat -c '%u:%g' /src) .
-mv -t /src -- *
+chown -R $(stat -c '%u:%g' /src) /tmp/src
+find /tmp/src -type f -execdir mv -t /src -- '{}' '+'

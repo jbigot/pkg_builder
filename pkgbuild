@@ -7,6 +7,7 @@ import json
 from os import cpu_count, link
 from pathlib import Path
 import re
+import socket
 from shutil import copy2, copytree, rmtree
 from subprocess import Popen, CalledProcessError, PIPE, STDOUT
 from sys import argv, stderr
@@ -22,7 +23,7 @@ import yaml
 
 from distinfo import ReleaseInfo, distributions
 
-PARALLELISM = min(32, 2 * cpu_count() + 1)
+PARALLELISM = cpu_count() + 1
 VERBOSE = False
 INTERACTIVE = True
 PASSPHRASE = ""
@@ -82,8 +83,7 @@ def cheched_run(cmd, cwd=None, return_stdout=False):
                 cancellation_point()
             retcode = process.poll()
             if retcode:
-                raise CalledProcessError(
-                    retcode, process.args, output=out, stderr=err)
+                raise CalledProcessError(retcode, process.args, output=out, stderr=err)
             if return_stdout:
                 if VERBOSE:
                     print(out, end='')
@@ -117,6 +117,9 @@ def download(url, path):
             except URLError as err:
                 if timeout == 7:
                     raise URLError('while downloading ' + url + ': ' + str(err))
+            except socket.timeout as err:
+                if timeout == 7:
+                    raise URLError('while downloading ' + url + ': ' + str(err))
         if VERBOSE:
             print("Downloading " + url + " done!")
         DOWNLOADED[url] = temp_path
@@ -142,21 +145,26 @@ class DebPackageBuilder:
         self.dist_release = dist_release
         self._gpg_info = gpg_info
         self._name = name
-        self._debian_dir = base_dir / pkg_data['debian']
-        self._orig_url = pkg_data['orig']
+        self._debian_dir = pkg_data.get('debian', None)
+        self._orig_url = pkg_data.get('orig', None)
         self._finished = False
         self._depends = set([self])  # self depend => never ready
         self.outdir = self._tmp_dir / 'output'
-
         self.bin_provides = set()
         self.bin_depends = set()
-        deps_kind = ['build-depends',
-                     'build-depends-indep', 'build-depends-arch']
+
+        if self._debian_dir is None:
+            return
+
+        self._debian_dir = base_dir / self._debian_dir
+
+        deps_kind = ['build-depends', 'build-depends-indep', 'build-depends-arch']
         with (self._debian_dir / 'control').open() as raw_control:
             control_paragraphs = Deb822.iter_paragraphs(
                 raw_control, strict={'whitespace-separates-paragraphs': False})
             self.bin_provides = {pkg['Package'] for
                                  pkg in control_paragraphs if 'Package' in pkg}
+        with (self._debian_dir / 'control').open() as raw_control:
             control = Control(raw_control)
             self.bin_depends = {om['name'] for
                                 dl in deps_kind for am in control.relations[dl] for om in am}
@@ -175,6 +183,12 @@ class DebPackageBuilder:
         try:
             print("\033[34m[STARTED]\033[39m * building deb for " +
                   self._name + ' on ' + str(self.dist_release) + "...")
+
+            if self._debian_dir is None:
+                self._finished = True
+                print("\033[36m[SKIPPED]\033[39m * building deb for " +
+                      self._name + ' on ' + str(self.dist_release) + "!")
+                return
 
             # Setup our directories
             self._tmp_dir.mkdir()
@@ -242,7 +256,7 @@ class DebPackageBuilder:
                          'pdidevel/' + self.dist_release.distrib.id +
                          '_builder:' + self.dist_release.codename,
                          '-j8', '-sa', '-P' + self.dist_release.distrib.id +
-                         ',' + self.dist_release.codename, '--no-sign'
+                         ',' + self.dist_release.codename
                          ])
 
             # Signing the generated packages
@@ -361,13 +375,24 @@ class RpmPackageBuilder:
         self.dist_release = dist_release
         self._gpg_info = gpg_info
         self._name = name
-        self._spec = base_dir / pkg_data['spec']
+        self._spec = pkg_data.get('spec')
         self._finished = False
         self._depends = set([self])  # self depend => never ready
-
+        self.outdir = self._tmp_dir / 'output'
         self.bin_provides = set()
         self.bin_depends = set()
-        self.outdir = self._tmp_dir / 'output'
+
+        for relation, comparator in {'after': ReleaseInfo.__ge__,
+                                     'before': ReleaseInfo.__le__,
+                                     'equal': ReleaseInfo.__eq__}.items():
+            for cmp_release in release_list(pkg_data.get('disable', {}).get(relation, {})):
+                if comparator(self.dist_release, cmp_release):
+                    self._spec = None
+
+        if self._spec is None:
+            return
+
+        self._spec = base_dir / self._spec
 
         self.bin_depends = {re.sub(r'[\( ].*', '', dep) for dep in
                             cheched_run(['rpmspec', '--buildrequires', '-q', str(self._spec)],
@@ -375,10 +400,6 @@ class RpmPackageBuilder:
         self.bin_provides = {re.sub(r'[\( ].*', '', d) for d in
                              cheched_run(['rpmspec', '--provides', '-q', str(self._spec)],
                                          return_stdout=True).splitlines()}
-
-    @staticmethod
-    def order(pkglst):
-        pass
 
     def ready(self):
         return all(map(RpmPackageBuilder.finished, self._depends))
@@ -394,6 +415,12 @@ class RpmPackageBuilder:
         try:
             print("\033[34m[STARTED]\033[39m * building rpm for " +
                   self._name + ' on ' + str(self.dist_release) + "...")
+
+            if self._spec is None:
+                self._finished = True
+                print("\033[36m[SKIPPED]\033[39m * building rpm for " +
+                      self._name + ' on ' + str(self.dist_release) + "!")
+                return
 
             # Setup our directories
             self._tmp_dir.mkdir()
@@ -448,11 +475,13 @@ def build_rpm_repo(tmp_dir, pkgs: Iterable[RpmPackageBuilder], _: GpgInfo, outpu
     release_dir_set = set()
     output_dir.mkdir(parents=True, exist_ok=True)
     for pkg in pkgs:
+        if not pkg.outdir.is_dir():
+            continue
         release_dir = output_dir / pkg.dist_release.distrib.id / pkg.dist_release.id
-        release_dir_set.add(release_dir)
         release_dir.mkdir(parents=True, exist_ok=True)
         for file in pkg.outdir.iterdir():
             if file.suffix == '.rpm' and len(file.suffixes) >= 2:
+                release_dir_set.add(release_dir)
                 rpmdir = release_dir / file.suffixes[-2][1:]
                 rpmdir.mkdir(exist_ok=True)
                 try:
@@ -474,7 +503,7 @@ def order_packages(pkglst):
 
 def release_list(cfg: dict) -> Set[ReleaseInfo]:
     releases = set()
-    for dist_id, release_id_lst in cfg['distribs'].items():
+    for dist_id, release_id_lst in cfg.items():
         dist = next(distributions(id=dist_id))
         if not isinstance(release_id_lst, list):
             release_id_lst = [release_id_lst]
@@ -492,10 +521,10 @@ def package_list(packages_cfg: dict, releases: Set[ReleaseInfo], tmp_dir: Path, 
     packages = set()
     for name, pkg_cfg in packages_cfg.items():
         for dist_release in releases:
-            if dist_release.distrib.id_like('debian'):
+            if 'debian' in dist_release.distrib.id_like:
                 packages.add(
                     DebPackageBuilder(tmp_dir, dist_release, base_dir, gpg_info, name, pkg_cfg))
-            if dist_release.distrib.id_like('fedora'):
+            if 'fedora' in dist_release.distrib.id_like:
                 packages.add(
                     RpmPackageBuilder(tmp_dir, dist_release, base_dir, gpg_info, name, pkg_cfg))
     order_packages(packages)
@@ -508,7 +537,7 @@ def build_packages(cfg_path):
     atexit.register(rmtree, tmp_dir)
     with cfg_path.open('r') as cfg_file:
         cfg = yaml.safe_load(cfg_file)
-    releases = release_list(cfg)
+    releases = release_list(cfg['distribs'])
 
     gpg_info = GpgInfo(base_dir, cfg)
     packages = package_list(cfg['packages'], releases, tmp_dir, base_dir, gpg_info)
@@ -534,10 +563,9 @@ def build_packages(cfg_path):
             cancellation_request()
             raise
 
-        build_deb_repo(tmp_dir, packages, gpg_info, base_dir /
-                       cfg.get('output_path', 'repositories'))
-        build_rpm_repo(tmp_dir, packages, gpg_info, base_dir /
-                       cfg.get('output_path', 'repositories'))
+        output_path = base_dir / cfg.get('repository', {}).get('path', 'repositories')
+        build_deb_repo(tmp_dir, packages, gpg_info, output_path)
+        build_rpm_repo(tmp_dir, packages, gpg_info, output_path)
 
 
 def main():
@@ -557,7 +585,7 @@ def main():
         print("\033[31m[ERROR]\033[39m   * Error while running subprocess:\n$ " +
               ' '.join([str(ce) for ce in err.cmd]), file=stderr)
         if err.stdout is not None:
-            print(err.stdout, file=stderr)
+            print(err.stdout)
         if err.stderr is not None:
             print(err.stderr, file=stderr)
         print(file=stderr)

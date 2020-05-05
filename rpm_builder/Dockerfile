@@ -1,15 +1,24 @@
-ARG DIST_NAME=fedora
+ARG DIST_ID=fedora
 ARG DIST_RELEASE=31
 
-FROM ${DIST_NAME}:${DIST_RELEASE}
+FROM ${DIST_ID}:${DIST_RELEASE}
 
 VOLUME /src
 VOLUME /localrepo
 
-RUN yum install -y --setopt=tsflags=nodocs \
+RUN dnf upgrade -y \
+ || yum upgrade -y \
+ && dnf install -y --setopt=tsflags=nodocs \
+    rpm-build \
+    'dnf-command(builddep)' \
+    nosync \
+ || yum install -y --setopt=tsflags=nodocs \
     rpm-build \
     yum-utils \
- && yum clean all -y --enablerepo='*' \
+ && dnf clean all -y --enablerepo='*' \
+ || yum clean all -y --enablerepo='*' \
+ && dnf upgrade -y \
+ || yum upgrade -y \
  && rm -f /*.log ${HOME}/*
 
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/entrypoint"]
