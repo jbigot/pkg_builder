@@ -5,6 +5,7 @@ import atexit
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from configparser import ConfigParser
 from datetime import datetime
+from email.utils import parsedate_to_datetime
 from hashlib import sha256
 import json
 from os import cpu_count, link
@@ -260,9 +261,12 @@ class DebPackageBuilder:
                 raise Exception('Unsupported deb package format: '+fmt)
 
             # Generate the automated entry in changelog
-            version = str(changelog.version)+'~pdidev'
+            version = str(changelog.version)
             if self.dist_release.id is not None:
-                version += self.dist_release.id
+                version += '~bpo' + self.dist_release.id
+            chlg_date = parsedate_to_datetime(changelog.date)
+            chlg_date = (datetime.now(tz=chlg_date.tzinfo) - chlg_date)
+            version += '.pdidev.' + str(int(chlg_date.total_seconds()))
             changelog.new_block(
                 package=changelog.package,
                 version=version,
@@ -467,7 +471,6 @@ class RpmPackageBuilder:
                          self.dist_release.distrib.id +
                          '_builder:' +
                          self.dist_release.id])
-            rmtree(pkg_dir)
             rmtree(localrepo)
 
             # Sign the generated packages
@@ -482,6 +485,7 @@ class RpmPackageBuilder:
             for file in pkg_dir.iterdir():
                 if file.suffix == '.rpm':
                     file.rename(self.outdir / file.name)
+            rmtree(pkg_dir)
 
             print("\033[32m[SUCCESS]\033[39m * building rpm for " +
                   self._name + ' on ' + str(self.dist_release) + "!")
@@ -511,7 +515,6 @@ class RpmRepoBuilder:
         if len(pkgs) == 0:
             return
 
-        distribs_set = set()
         releases_set = set()
         self._output_dir.mkdir(parents=True, exist_ok=True)
         for pkg in pkgs:
@@ -522,7 +525,6 @@ class RpmRepoBuilder:
             for file in pkg.outdir.iterdir():
                 if file.suffix == '.rpm' and len(file.suffixes) >= 2:
                     releases_set.add(pkg.dist_release)
-                    distribs_set.add(pkg.dist_release.distrib)
                     rpmdir = release_dir / file.suffixes[-2][1:]
                     rpmdir.mkdir(exist_ok=True)
                     try:
@@ -536,14 +538,12 @@ class RpmRepoBuilder:
                          str(self._output_dir / (self._name + '.key'))], cwd=self._output_dir)
 
         for dist_release in releases_set:
-            release_dir = self._output_dir / pkg.dist_release.distrib.id / pkg.dist_release.id
+            release_dir = self._output_dir / dist_release.distrib.id / dist_release.id
             cheched_run(['createrepo', '.'], cwd=release_dir)
             (release_dir / 'repodata' / 'repomd.xml.asc').unlink(missing_ok=True)
-            cheched_run([self._gpg.bin(), '--detach-sign', '--armor', 'repodata/repomd.xml'],
-                        cwd=release_dir)
+            cheched_run([self._gpg.bin(), '-b', '-a', 'repodata/repomd.xml'], cwd=release_dir)
             if self._url is not None:
-                baseurl = urljoin(self._url, pkg.dist_release.distrib.id + '/'
-                                  + pkg.dist_release.id)
+                baseurl = urljoin(self._url, dist_release.distrib.id + '/' + dist_release.id)
                 repo_data = ConfigParser()
                 repo_data.add_section(self._name)
                 repo_data.set(self._name, 'name', self._description+' ('+str(dist_release)+')')
