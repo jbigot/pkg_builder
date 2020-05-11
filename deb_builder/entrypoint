@@ -22,4 +22,4 @@ bgrun find /tmp/src/ -maxdepth 1 -name '*.orig.tar.*' -exec tar -C "${PWD}" --st
 bgrun dpkg-buildpackage "$@"
 
 chown -R "$(stat -c '%u:%g' /src)" /tmp/src
-find /tmp/src -type f -execdir mv -t /src -- '{}' '+'
+find /tmp/src -maxdepth 1 -type f -execdir mv -t /src -- '{}' '+'

@@ -307,6 +307,8 @@ class DebPackageBuilder:
                          '-j8', '-sa', '-P' + self.dist_release.distrib.id +
                          ',' + self.dist_release.codename
                          ])
+            rmtree(localrepo)
+            rmtree(deps_dir)
 
             # Signing the generated packages
             cheched_run(['debsign', '--no-conf', self._gpg.bin('-p')]+self._gpg.id('-k', [])+[
@@ -316,6 +318,7 @@ class DebPackageBuilder:
             for file in pkg_dir.iterdir():
                 if file.is_file():
                     file.rename(self.outdir / file.name)
+            rmtree(pkg_dir)
 
             self._finished = True
             print("\033[32m[SUCCESS]\033[39m * building deb for " +
@@ -464,6 +467,8 @@ class RpmPackageBuilder:
                          self.dist_release.distrib.id +
                          '_builder:' +
                          self.dist_release.id])
+            rmtree(pkg_dir)
+            rmtree(localrepo)
 
             # Sign the generated packages
             for file in pkg_dir.iterdir():

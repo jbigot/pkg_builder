@@ -13,10 +13,8 @@ jobs:
       uses: actions/setup-python@v1
       with: { python-version: 3.8 }
     - name: Build
-      run: |
-        ./build
-    - name: publish
       env:
         DOCKER_TOKEN: ${{ secrets.DockerToken }}
       run: |
-        ./publish jbigot "${DOCKER_TOKEN}"
+        docker login -u jbigot -p "${DOCKER_TOKEN}"
+        ./build --publish
