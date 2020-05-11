@@ -12,9 +12,11 @@ deb:
 * handle arch & profile for deps
 * set profile per distrib
 * provide all info when publishing, including suite, notautomatic, butautomaticupgrades
+* copy everything but spec and files referenced from spec
 
 rpm:
 * pre-DL files
 * support dnf/yum choice
 * handle the Release: tag in spec
 * distro DB from reliable source
+* copy everything referenced from spec

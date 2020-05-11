@@ -5,7 +5,6 @@ import atexit
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from configparser import ConfigParser
 from datetime import datetime
-from email.utils import parsedate_to_datetime
 from hashlib import sha256
 import json
 from os import cpu_count, link
@@ -243,6 +242,8 @@ class DebPackageBuilder:
             self.outdir.mkdir()
             pkg_dir = wk_dir / 'pkg'
             pkg_dir.mkdir()
+
+            # Copy the data
             fmt = cheched_run(['dpkg-source', '--print-format', str(self._debian_dir.parent)],
                               return_stdout=True).strip()
             with (self._debian_dir / 'changelog').open() as raw_changelog:
@@ -258,16 +259,10 @@ class DebPackageBuilder:
             else:
                 raise Exception('Unsupported deb package format: '+fmt)
 
-            # Add the bpo to the version string
-            target_releases = set()
-            for tgt in changelog.distributions.split(' '):
-                target_releases |= set(self.dist_release.distrib.releases(codename=tgt))
-                target_releases |= set(self.dist_release.distrib.releases(suite=tgt))
+            # Generate the automated entry in changelog
             version = str(changelog.version)+'~pdidev'
-            if self.dist_release not in target_releases:
-                version += '~bpo' + self.dist_release.id
-            chlg_date = parsedate_to_datetime(changelog.date)
-            version += '.'+str(int((datetime.now(tz=chlg_date.tzinfo) - chlg_date).total_seconds()))
+            if self.dist_release.id is not None:
+                version += self.dist_release.id
             changelog.new_block(
                 package=changelog.package,
                 version=version,
