@@ -1,39 +1,123 @@
 #!/usr/bin/env python3
 
+import argparse
 import atexit
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from configparser import ConfigParser
+from datetime import datetime
+from email.utils import parsedate_to_datetime
 from hashlib import sha256
 import json
 from os import cpu_count, link
 from pathlib import Path
 import re
 import socket
+from shlex import quote
 from shutil import copy2, copytree, rmtree
 from subprocess import Popen, CalledProcessError, PIPE, STDOUT
 from sys import argv, stderr
 from tempfile import mkdtemp, TemporaryDirectory
-from time import sleep
+from time import sleep, time
 from typing import Iterable, Set
 from urllib.error import URLError
+from urllib.parse import urljoin, urlparse
 from urllib.request import url2pathname, urlopen
 
 from debian.changelog import Changelog, format_date
 from debian.deb822 import Deb822, _PkgRelationMixin
 import yaml
 
+from downloader import Downloader
 from distinfo import ReleaseInfo, distributions
 
-PARALLELISM = cpu_count() + 1
-VERBOSE = False
-INTERACTIVE = True
-PASSPHRASE = ""
+VERBOSE = None
 
 
 class GpgInfo:
-    def __init__(self, base_dir, cfg):
-        self.secring = base_dir / cfg.get('gpg', {}).get('file', 'key.gpg')
-        self.key = cfg.get('gpg', {}).get('id', None)
-        self.passphrase = PASSPHRASE
+    def __init__(self, keyfile, keyid=None, passphrase=None, uid=None):
+        self._secring = keyfile
+        self._keyid = keyid
+        self._passphrase = passphrase
+        self._home_dir = Path(mkdtemp(prefix='GNUPG_HOME.'))
+        atexit.register(rmtree, self._home_dir)
+        self._gpg_bin = self._home_dir / 'bin' / 'gpg'
+        self._uid = uid
+
+
+        if self._keyid is not None:
+            self._keyid = self._keyid.upper()
+
+        self._home_dir.chmod(0o700)
+        cheched_run(['gpg2', '--batch', '--homedir', self.home()] +
+                    self.passphrase('', ['--passphrase']) + ['--import', self.ring()],
+                    cwd=self._home_dir)
+
+        self._gpg_bin.parent.mkdir()
+        with self._gpg_bin.open('w') as gpg_bin_raw:
+            print('#!/bin/sh', file=gpg_bin_raw)
+            print('exec gpg2 --batch --pinentry-mode loopback --homedir ' + quote(self.home())
+                  + ' --passphrase ' + quote(self.passphrase('')) + ' "$@"', file=gpg_bin_raw)
+        self._gpg_bin.chmod(0o700)
+
+        data = cheched_run(['gpg2', '--batch', '--with-colons', '--with-fingerprint',
+                            '--fixed-list-mode']+self.passphrase('', ['--passphrase']) +
+                           ['--show-keys', self.ring()], cwd=self._home_dir, return_stdout=True)
+        in_key = False
+        for l in data.splitlines():
+            res = l.split(':')
+            if res[0] == 'sec':
+                in_key = False
+                if self._keyid is None or res[4].upper()[-8:] == self._keyid[-8:]:
+                    in_key = True
+            elif (res[0] == 'ssb' or res[0] == 'pub' or res[0] == 'crt' or res[0] == 'crs'
+                  or res[0] == 'sub'):
+                in_key = False
+            elif res[0] == 'fpr' and in_key:
+                self._keyid = res[9].upper()
+            elif res[0] == 'uid' and in_key:
+                if self._uid is None or res[9].trim() == self._uid.trim():
+                    self._uid = res[9]
+
+    def _combine(self, prel, pre, data, post, postl):
+        if data is None:
+            if prel is not None or postl is not None:
+                return []
+            if pre is not None or post is not None:
+                return ''
+            return None
+        data = str(data)
+        if pre is not None:
+            data = pre + data
+        if post is not None:
+            data = data + post
+        if prel is not None or postl is not None:
+            data = [data]
+        if prel is not None:
+            data = prel + data
+        if postl is not None:
+            data = data + postl
+        return data
+
+    def uid(self, pre=None, prel=None, post=None, postl=None):
+        return self._combine(prel, pre, self._uid, post, postl)
+
+    def id(self, pre=None, prel=None, post=None, postl=None):
+        return self._combine(prel, pre, self._keyid, post, postl)
+
+    def id8(self, pre=None, prel=None, post=None, postl=None):
+        return self._combine(prel, pre, self._keyid[-8:], post, postl)
+
+    def passphrase(self, pre=None, prel=None, post=None, postl=None):
+        return self._combine(prel, pre, self._passphrase, post, postl)
+
+    def ring(self, pre=None, prel=None, post=None, postl=None):
+        return self._combine(prel, pre, self._secring, post, postl)
+
+    def bin(self, pre=None, prel=None, post=None, postl=None):
+        return self._combine(prel, pre, self._gpg_bin, post, postl)
+
+    def home(self, pre=None, prel=None, post=None, postl=None):
+        return self._combine(prel, pre, self._home_dir, post, postl)
 
 
 RUNNING_PROCESSES = set()
@@ -91,44 +175,6 @@ def cheched_run(cmd, cwd=None, return_stdout=False):
     return None
 
 
-DOWNLOADED = {}
-DOWNLOAD_DIR = Path(mkdtemp(prefix='DOWNLOAD_DIR.'))
-atexit.register(rmtree, DOWNLOAD_DIR)
-
-
-def download(url, path):
-    cancellation_point()
-    if url in DOWNLOADED:
-        while DOWNLOADED[url] is None:
-            sleep(0.1)
-            cancellation_point()
-            if VERBOSE:
-                print("Downloading " + url + " : in cache!")
-    else:
-        DOWNLOADED[url] = None
-        temp_path = DOWNLOAD_DIR / sha256(bytes(url, 'UTF8')).hexdigest()
-        if VERBOSE:
-            print("Downloading " + url + " ...")
-        for timeout in [1, 2, 3, 5, 7]:
-            try:
-                with urlopen(url, timeout=timeout) as raw_src, temp_path.open('wb') as raw_dst:
-                    raw_dst.write(raw_src.read())
-                break
-            except URLError as err:
-                if timeout == 7:
-                    raise URLError('while downloading ' + url + ': ' + str(err))
-            except socket.timeout as err:
-                if timeout == 7:
-                    raise URLError('while downloading ' + url + ': ' + str(err))
-        if VERBOSE:
-            print("Downloading " + url + " done!")
-        DOWNLOADED[url] = temp_path
-    try:
-        link(DOWNLOADED[url], path)
-    except OSError:
-        copy2(DOWNLOADED[url], path)
-
-
 class Control(Deb822, _PkgRelationMixin):
     _relationship_fields = ['build-depends',
                             'build-depends-indep', 'build-depends-arch']
@@ -139,24 +185,24 @@ class Control(Deb822, _PkgRelationMixin):
 
 
 class DebPackageBuilder:
-    def __init__(self, tmp_dir: Path, dist_release: ReleaseInfo, base_dir: Path, gpg_info: GpgInfo,
-                 name: str, pkg_data: dict):
-        self._tmp_dir = tmp_dir / (name + '.' + dist_release.uid() + '.deb-build')
+    def __init__(self, dist_release: ReleaseInfo, base_dir: Path, gpg: GpgInfo, name: str,
+                 downloader: Downloader, orig_url: str):
         self.dist_release = dist_release
-        self._gpg_info = gpg_info
+        self._debian_dir = base_dir / name / 'debian'
+        self._gpg = gpg
         self._name = name
-        self._debian_dir = pkg_data.get('debian', None)
-        self._orig_url = pkg_data.get('orig', None)
+        self._downloader = downloader
+        self._orig_url = orig_url
+
         self._finished = False
+        self.outdir = None
         self._depends = set([self])  # self depend => never ready
-        self.outdir = self._tmp_dir / 'output'
         self.bin_provides = set()
         self.bin_depends = set()
 
-        if self._debian_dir is None:
+        if not self._debian_dir.is_dir():
+            self._debian_dir = None
             return
-
-        self._debian_dir = base_dir / self._debian_dir
 
         deps_kind = ['build-depends', 'build-depends-indep', 'build-depends-arch']
         with (self._debian_dir / 'control').open() as raw_control:
@@ -178,7 +224,7 @@ class DebPackageBuilder:
     def __dep_packages(self):
         return {e for el in self._depends for e in el.__dep_packages()} | set([self])
 
-    def build(self):
+    def build(self, wk_dir):
         cancellation_point()
         try:
             print("\033[34m[STARTED]\033[39m * building deb for " +
@@ -191,57 +237,65 @@ class DebPackageBuilder:
                 return
 
             # Setup our directories
-            self._tmp_dir.mkdir()
+            wk_dir = wk_dir / (self._name + '.' + self.dist_release.uid() + '.deb-build')
+            wk_dir.mkdir()
+            self.outdir = wk_dir / 'output'
             self.outdir.mkdir()
-            pkg_dir = self._tmp_dir / 'pkg'
+            pkg_dir = wk_dir / 'pkg'
             pkg_dir.mkdir()
-            debian_dir = Path(copytree(self._debian_dir, pkg_dir / 'debian'))
+            fmt = cheched_run(['dpkg-source', '--print-format', str(self._debian_dir.parent)],
+                              return_stdout=True).strip()
+            with (self._debian_dir / 'changelog').open() as raw_changelog:
+                changelog = Changelog(raw_changelog)
+            if fmt == '3.0 (quilt)':
+                pkg_src_dir = pkg_dir / (changelog.package + '-' + changelog.upstream_version)
+                debian_dir = Path(copytree(self._debian_dir, pkg_src_dir / 'debian'))
+            elif fmt == '3.0 (native)':
+                pkg_src_dir = Path(copytree(self._debian_dir.parent,
+                                            pkg_dir / (changelog.package + '-'
+                                                       + changelog.upstream_version)))
+                debian_dir = pkg_src_dir / 'debian'
+            else:
+                raise Exception('Unsupported deb package format: '+fmt)
 
             # Add the bpo to the version string
-            with (debian_dir / 'changelog').open() as raw_changelog:
-                changelog = Changelog(raw_changelog)
             target_releases = set()
             for tgt in changelog.distributions.split(' '):
-                target_releases |= set(self.dist_release.distrib.releases(
-                    codename=re.sub(r'-backports.*', '', tgt)))
-                target_releases |= set(self.dist_release.distrib.releases(
-                    suite=re.sub(r'-backports.*', '', tgt)))
-            if len(target_releases) > 0 and self.dist_release < min(target_releases):
-                changelog.new_block(
-                    package=changelog.package,
-                    version=str(changelog.version) + '~bpo' + self.dist_release.id,
-                    distributions=self.dist_release.codename,
-                    urgency=changelog.urgency,
-                    changes=['  * Backport rebuild for ' +
-                             str(self.dist_release)],
-                    author=changelog.author,
-                    date=format_date())
-                with (debian_dir / 'changelog').open('w') as raw_changelog:
-                    changelog.write_to_open_file(raw_changelog)
-            elif self.dist_release not in target_releases:
-                self._finished = True
-                print("\033[36m[SKIPPED]\033[39m * building deb for " +
-                      self._name + ' on ' + str(self.dist_release) + "!")
-                return
+                target_releases |= set(self.dist_release.distrib.releases(codename=tgt))
+                target_releases |= set(self.dist_release.distrib.releases(suite=tgt))
+            version = str(changelog.version)+'~pdidev'
+            if self.dist_release not in target_releases:
+                version += '~bpo' + self.dist_release.id
+            chlg_date = parsedate_to_datetime(changelog.date)
+            version += '.'+str(int((datetime.now(tz=chlg_date.tzinfo) - chlg_date).total_seconds()))
+            changelog.new_block(
+                package=changelog.package,
+                version=version,
+                distributions=self.dist_release.codename,
+                urgency=changelog.urgency,
+                changes=['  * Rebuild for ' + str(self.dist_release)],
+                author=self._gpg.uid(),
+                date=format_date())
+            with (debian_dir / 'changelog').open('w') as raw_changelog:
+                changelog.write_to_open_file(raw_changelog)
 
             # Download the orig file
-            self._orig_url = self._orig_url.format(
-                upstream_version=changelog.upstream_version, package=changelog.package)
-            download(self._orig_url,
-                     pkg_dir / (
-                         changelog.package + '_' + changelog.upstream_version
-                         + '.orig.tar' + (Path(url2pathname(self._orig_url)).suffix)))
+            if fmt == '3.0 (quilt)':
+                self._orig_url = self._orig_url.format(
+                    upstream_version=changelog.upstream_version, package=changelog.package)
+                orig_file = (changelog.package + '_' + changelog.upstream_version + '.orig.tar' +
+                             Path(urlparse(self._orig_url).path).suffix)
+                self._downloader.download(self._orig_url, pkg_dir / orig_file)
 
             # Generate the dependencies .deb
-            deps_dir = self._tmp_dir / 'deps'
+            deps_dir = wk_dir / 'deps'
             deps_dir.mkdir()
             cheched_run(['mk-build-deps', '-P' + self.dist_release.distrib.id + ',' +
-                         self.dist_release.codename, pkg_dir / 'debian' / 'control'], cwd=deps_dir)
+                         self.dist_release.codename, debian_dir / 'control'], cwd=deps_dir)
 
             # Build a repo with all dependencies
-            localrepo = self._tmp_dir / 'repo'
-            build_deb_repo(self._tmp_dir, self.__dep_packages(),
-                           self._gpg_info, localrepo)
+            localrepo = wk_dir / 'repo'
+            DebRepoBuilder(localrepo, self._gpg).build(self.__dep_packages())
 
             # Build the package in docker
             cheched_run(['docker', 'run', '--rm', '-eDH_VERBOSE=1',
@@ -260,27 +314,8 @@ class DebPackageBuilder:
                          ])
 
             # Signing the generated packages
-            gpg_kr = self._tmp_dir / 'gpg-kr'
-            (self._tmp_dir / 'gnupg').mkdir(0o700)
-            cheched_run(['gpg2',
-                         '--batch',
-                         '--homedir',
-                         str(self._tmp_dir / 'gnupg'),
-                         '--passphrase',
-                         self._gpg_info.passphrase,
-                         '--import',
-                         self._gpg_info.secring],
-                        cwd=pkg_dir)
-            with gpg_kr.open('w') as gpg_kr_raw:
-                print('#!/bin/sh', file=gpg_kr_raw)
-                print('exec gpg2 --batch --homedir "' + str(self._tmp_dir / 'gnupg') +
-                      '" --passphrase "' + self._gpg_info.passphrase + '" "$@"', file=gpg_kr_raw)
-            gpg_kr.chmod(0o777)
-            cmd = ['debsign', '--no-conf', '-p' +
-                   str(gpg_kr), '--debs-dir', str(pkg_dir)]
-            if self._gpg_info.key is not None:
-                cmd.append('-k' + self._gpg_info.key)
-            cheched_run(cmd, cwd=pkg_dir)
+            cheched_run(['debsign', '--no-conf', self._gpg.bin('-p')]+self._gpg.id('-k', [])+[
+                         '--debs-dir', str(pkg_dir)], cwd=debian_dir.parent)
 
             # Moving the generated packages to the output directory
             for file in pkg_dir.iterdir():
@@ -300,99 +335,88 @@ class DebPackageBuilder:
             raise
 
 
-def build_deb_repo(tmp_dir, pkgs, gpg_info: GpgInfo, output_dir):
+class DebRepoBuilder:
+    def __init__(self, output_dir: Path, gpg: GpgInfo, url: str = None, name: str = None,
+                 description: str = None):
+        self._output_dir = output_dir
+        self._gpg = gpg
+        self._url = url
+        if url is not None:
+            self._name = name if name is not None else Path(str(urlparse(self._url).path)).name
+            self._description = description if description is not None else name
 
-    pkgs = list(
-        filter(lambda p: 'debian' in p.dist_release.distrib.id_like, pkgs))
-    if len(pkgs) == 0:
-        return
+    def build(self, pkgs: Iterable[DebPackageBuilder]):
+        pkgs = list(filter(lambda p: 'debian' in p.dist_release.distrib.id_like, pkgs))
 
-    tmp_dir = tmp_dir / 'aptly'
-    tmp_dir.mkdir()
-    aptly_confpath = tmp_dir / 'aptly.conf'
+        if len(pkgs) == 0:
+            return
 
-    def aptly(*args):
-        cheched_run(['aptly', '-config=' + str(aptly_confpath)] + list(args))
+        with TemporaryDirectory() as tmp_dir:
+            tmp_dir = Path(tmp_dir)
+            aptly_confpath = tmp_dir / 'aptly.conf'
 
-    aptly_cfg = {
-        'architectures': ["amd64", "source"],
-        'gpgProvider': "internal",
-        'rootDir': str(tmp_dir),
-        'FileSystemPublishEndpoints': {'default': {
-            'rootDir': str(output_dir),
-            'linkMethod': "copy",
-        }},
-    }
-    with aptly_confpath.open('w') as aptly_conf:
-        json.dump(aptly_cfg, aptly_conf)
+            def aptly(*args):
+                cheched_run(['aptly', '-config=' + str(aptly_confpath)] + list(args))
 
-    output_dir.mkdir(parents=True, exist_ok=True)
+            aptly_cfg = {
+                'architectures': ["amd64", "source"],
+                'gpgProvider': "internal",
+                'rootDir': str(tmp_dir),
+                'FileSystemPublishEndpoints': {'default': {
+                    'rootDir': str(self._output_dir),
+                    'linkMethod': "copy",
+                }},
+            }
+            with aptly_confpath.open('w') as aptly_conf:
+                json.dump(aptly_cfg, aptly_conf)
 
-    repos = set()
-    for pkg in pkgs:
-        if pkg.dist_release not in repos:
-            repos.add(pkg.dist_release)
-            aptly('repo', 'create', '-distribution=' +
-                  pkg.dist_release.codename, pkg.dist_release.uid())
-            if pkg.dist_release.suite is not None:
-                aptly('repo', 'create', '-distribution=' + pkg.dist_release.suite,
-                      pkg.dist_release.uid() + ':' + pkg.dist_release.suite)
-        aptly('repo', 'include',
-              # '-keyring='+str(gpg_info.pubring),
-              '-keyring=' + str(gpg_info.secring),
-              '-no-remove-files', '-repo=' + pkg.dist_release.uid(), str(pkg.outdir))
-        if pkg.dist_release.suite is not None:
-            aptly('repo', 'include',
-                  # '-keyring='+str(gpg_info.pubring),
-                  '-keyring=' + str(gpg_info.secring),
-                  '-no-remove-files',
-                  '-repo=' + pkg.dist_release.uid() + ':' + pkg.dist_release.suite, str(pkg.outdir))
-    for dist_release in repos:
-        publish_repo = ['publish', 'repo',
-                        # '-keyring='+str(gpg_info.pubring),
-                        '-secret-keyring=' + str(gpg_info.secring)]
-        if gpg_info.key is not None:
-            publish_repo.append('-gpg-key=' + gpg_info.key[-8:])
-        if gpg_info.passphrase != '':
-            publish_repo.append('-passphrase=' + gpg_info.passphrase)
-        aptly(*publish_repo, dist_release.uid(),
-              'filesystem:default:' + dist_release.distrib.id)
-        if dist_release.suite is not None:
-            aptly(*publish_repo, dist_release.uid() + ':' + dist_release.suite,
-                  'filesystem:default:' + dist_release.distrib.id)
+            self._output_dir.mkdir(parents=True, exist_ok=True)
+
+            repos = set()
+            for pkg in pkgs:
+                if pkg.dist_release not in repos:
+                    repos.add(pkg.dist_release)
+                    aptly('repo', 'create', '-distribution=' +
+                          pkg.dist_release.codename, pkg.dist_release.uid())
+                    if pkg.dist_release.suite is not None:
+                        aptly('repo', 'create', '-distribution=' + pkg.dist_release.suite,
+                              pkg.dist_release.uid() + ':' + pkg.dist_release.suite)
+                aptly('repo', 'include', self._gpg.ring('-keyring='),
+                      '-no-remove-files', '-repo=' + pkg.dist_release.uid(), str(pkg.outdir))
+                if pkg.dist_release.suite is not None:
+                    aptly('repo', 'include', self._gpg.ring('-keyring='), '-no-remove-files',
+                          '-repo=' + pkg.dist_release.uid() + ':' + pkg.dist_release.suite,
+                          str(pkg.outdir))
+            for dist_release in repos:
+                publish_repo = (['publish', 'repo', '-batch', self._gpg.ring('-secret-keyring='),
+                                 '-force-overwrite' ] + self._gpg.id8('-gpg-key=', []) +
+                                self._gpg.passphrase('-passphrase=', []))
+                if self._url is not None:
+                    ['-notautomatic=yes', '-butautomaticupgrades=yes']
+                    publish_repo += ['-label='+self._description, '-origin='+self._name]
+                aptly(*publish_repo, dist_release.uid(),
+                      'filesystem:default:' + dist_release.distrib.id)
+                if dist_release.suite is not None:
+                    aptly(*publish_repo, dist_release.uid() + ':' + dist_release.suite,
+                          'filesystem:default:' + dist_release.distrib.id)
 
 
 class RpmPackageBuilder:
-    def __init__(
-            self,
-            tmp_dir: Path,
-            dist_release: ReleaseInfo,
-            base_dir: Path,
-            gpg_info: GpgInfo,
-            name: str,
-            pkg_data: dict):
-        self._tmp_dir = tmp_dir / (name + '.' + dist_release.uid() + '.rpm-build')
+    def __init__(self, dist_release: ReleaseInfo, base_dir: Path, gpg: GpgInfo, name: str):
         self.dist_release = dist_release
-        self._gpg_info = gpg_info
+        self._spec = base_dir / name / (name+'.spec')
+        self._gpg = gpg
         self._name = name
-        self._spec = pkg_data.get('spec')
+
         self._finished = False
         self._depends = set([self])  # self depend => never ready
-        self.outdir = self._tmp_dir / 'output'
+        self.outdir = None
         self.bin_provides = set()
         self.bin_depends = set()
 
-        for relation, comparator in {'after': ReleaseInfo.__ge__,
-                                     'before': ReleaseInfo.__le__,
-                                     'equal': ReleaseInfo.__eq__}.items():
-            for cmp_release in release_list(pkg_data.get('disable', {}).get(relation, {})):
-                if comparator(self.dist_release, cmp_release):
-                    self._spec = None
-
-        if self._spec is None:
+        if not self._spec.is_file():
+            self._spec = None
             return
-
-        self._spec = base_dir / self._spec
 
         self.bin_depends = {re.sub(r'[\( ].*', '', dep) for dep in
                             cheched_run(['rpmspec', '--buildrequires', '-q', str(self._spec)],
@@ -410,7 +434,7 @@ class RpmPackageBuilder:
     def incomings(self):
         return {e for el in self._depends for e in el.incomings()} | set([self])
 
-    def build(self):
+    def build(self, wk_dir):
         cancellation_point()
         try:
             print("\033[34m[STARTED]\033[39m * building rpm for " +
@@ -423,16 +447,17 @@ class RpmPackageBuilder:
                 return
 
             # Setup our directories
-            self._tmp_dir.mkdir()
+            wk_dir = wk_dir / (self._name + '.' + self.dist_release.uid() + '.rpm-build')
+            wk_dir.mkdir()
+            self.outdir = wk_dir / 'output'
             self.outdir.mkdir()
-            pkg_dir = self._tmp_dir / 'pkg'
+            pkg_dir = wk_dir / 'pkg'
             pkg_dir.mkdir()
             spec = pkg_dir / self._spec.name
             copy2(self._spec, spec)
 
-            localrepo = self._tmp_dir / 'repo'
-            build_rpm_repo(self._tmp_dir, self.incomings(),
-                           self._gpg_info, localrepo)
+            localrepo = wk_dir / 'repo'
+            RpmRepoBuilder(localrepo, self._gpg).build(self.incomings())
 
             cheched_run(['docker', 'run', '--rm', '--mount', 'type=bind,source=' +
                          str(pkg_dir) +
@@ -444,6 +469,15 @@ class RpmPackageBuilder:
                          self.dist_release.distrib.id +
                          '_builder:' +
                          self.dist_release.id])
+
+            # Sign the generated packages
+            for file in pkg_dir.iterdir():
+                if file.suffix == '.rpm':
+                    cheched_run(['rpmsign', self._gpg.bin('--define=%_gpg_bin '),
+                                 self._gpg.bin('--define=%__gpg '),
+                                 self._gpg.home('--define=%_gpg_home '),
+                                 self._gpg.uid('--define=%_gpg_name '),
+                                 '--resign', file], cwd=pkg_dir)
 
             for file in pkg_dir.iterdir():
                 if file.suffix == '.rpm':
@@ -462,35 +496,65 @@ class RpmPackageBuilder:
             raise
 
 
-def build_rpm_repo(tmp_dir, pkgs: Iterable[RpmPackageBuilder], _: GpgInfo, output_dir: Path):
+class RpmRepoBuilder:
+    def __init__(self, output_dir: Path, gpg: GpgInfo, url: str = None, name: str = None,
+                 description: str = None):
+        self._output_dir = output_dir
+        self._gpg = gpg
+        self._url = url
+        if url is not None:
+            self._name = name if name is not None else str(Path(urlparse(str(self._url)).path).name)
+            self._description = description if description is not None else name
 
-    pkgs = list(
-        filter(lambda p: 'fedora' in p.dist_release.distrib.id_like, pkgs))
-    if len(pkgs) == 0:
-        return
+    def build(self, pkgs: Iterable[RpmPackageBuilder]):
+        pkgs = list(filter(lambda p: 'fedora' in p.dist_release.distrib.id_like, pkgs))
+        if len(pkgs) == 0:
+            return
 
-    tmp_dir = tmp_dir / 'createrepo'
-    tmp_dir.mkdir()
+        distribs_set = set()
+        releases_set = set()
+        self._output_dir.mkdir(parents=True, exist_ok=True)
+        for pkg in pkgs:
+            if not pkg.outdir.is_dir():
+                continue
+            release_dir = self._output_dir / pkg.dist_release.distrib.id / pkg.dist_release.id
+            release_dir.mkdir(parents=True, exist_ok=True)
+            for file in pkg.outdir.iterdir():
+                if file.suffix == '.rpm' and len(file.suffixes) >= 2:
+                    releases_set.add(pkg.dist_release)
+                    distribs_set.add(pkg.dist_release.distrib)
+                    rpmdir = release_dir / file.suffixes[-2][1:]
+                    rpmdir.mkdir(exist_ok=True)
+                    try:
+                        link(file, rpmdir / file.name)
+                    except OSError:
+                        copy2(file, rpmdir / file.name)
 
-    release_dir_set = set()
-    output_dir.mkdir(parents=True, exist_ok=True)
-    for pkg in pkgs:
-        if not pkg.outdir.is_dir():
-            continue
-        release_dir = output_dir / pkg.dist_release.distrib.id / pkg.dist_release.id
-        release_dir.mkdir(parents=True, exist_ok=True)
-        for file in pkg.outdir.iterdir():
-            if file.suffix == '.rpm' and len(file.suffixes) >= 2:
-                release_dir_set.add(release_dir)
-                rpmdir = release_dir / file.suffixes[-2][1:]
-                rpmdir.mkdir(exist_ok=True)
-                try:
-                    link(file, rpmdir / file.name)
-                except OSError:
-                    copy2(file, rpmdir / file.name)
+        if self._url is not None:
+            (self._output_dir / (self._name + '.key')).unlink(missing_ok=True)
+            cheched_run([self._gpg.bin(), '--armor', '--export', '--output',
+                         str(self._output_dir / (self._name + '.key'))], cwd=self._output_dir)
 
-    for release_dir in release_dir_set:
-        cheched_run(['createrepo', '.'], cwd=release_dir)
+        for dist_release in releases_set:
+            release_dir = self._output_dir / pkg.dist_release.distrib.id / pkg.dist_release.id
+            cheched_run(['createrepo', '.'], cwd=release_dir)
+            (release_dir / 'repodata' / 'repomd.xml.asc').unlink(missing_ok=True)
+            cheched_run([self._gpg.bin(), '--detach-sign', '--armor', 'repodata/repomd.xml'],
+                        cwd=release_dir)
+            if self._url is not None:
+                baseurl = urljoin(self._url, pkg.dist_release.distrib.id + '/'
+                                  + pkg.dist_release.id)
+                repo_data = ConfigParser()
+                repo_data.add_section(self._name)
+                repo_data.set(self._name, 'name', self._description+' ('+str(dist_release)+')')
+                repo_data.set(self._name, 'type', 'rpm-md')
+                repo_data.set(self._name, 'baseurl', baseurl)
+                repo_data.set(self._name, 'gpgcheck', '1')
+                repo_data.set(self._name, 'repo_gpgcheck', '1')
+                repo_data.set(self._name, 'gpgkey', urljoin(self._url, self._name + '.key'))
+                repo_data.set(self._name, 'enabled', '1')
+                with (release_dir / (self._name + '.repo')).open('w') as repo_file:
+                    repo_data.write(repo_file, space_around_delimiters=False)
 
 
 def order_packages(pkglst):
@@ -507,49 +571,39 @@ def release_list(cfg: dict) -> Set[ReleaseInfo]:
         dist = next(distributions(id=dist_id))
         if not isinstance(release_id_lst, list):
             release_id_lst = [release_id_lst]
+        prev = set()
         for release_id in release_id_lst:
-            if release_id == 'supported':
-                releases.update(dist.releases(supported=True))
+            cur = set()
+            if release_id == 'all':
+                cur.update(dist.releases())
+            elif release_id == '+':
+                cur.update(dist.releases(after=max(prev)))
+            if release_id == '-':
+                cur.update(dist.releases(before=min(prev)))
+            elif release_id == 'supported':
+                cur.update(dist.releases(supported=True))
             else:
-                releases.update(dist.releases(codename=release_id))
-                releases.update(dist.releases(suite=release_id))
-                releases.update(dist.releases(id=release_id))
+                cur.update(dist.releases(codename=release_id))
+                cur.update(dist.releases(suite=release_id))
+                cur.update(dist.releases(id=release_id))
+            releases |= cur
+            prev = cur
     return releases
 
 
-def package_list(packages_cfg: dict, releases: Set[ReleaseInfo], tmp_dir: Path, base_dir: Path, gpg_info: GpgInfo) -> set:
-    packages = set()
-    for name, pkg_cfg in packages_cfg.items():
-        for dist_release in releases:
-            if 'debian' in dist_release.distrib.id_like:
-                packages.add(
-                    DebPackageBuilder(tmp_dir, dist_release, base_dir, gpg_info, name, pkg_cfg))
-            if 'fedora' in dist_release.distrib.id_like:
-                packages.add(
-                    RpmPackageBuilder(tmp_dir, dist_release, base_dir, gpg_info, name, pkg_cfg))
-    order_packages(packages)
-    return packages
-
-
-def build_packages(cfg_path):
-    base_dir = cfg_path.parent.absolute()
-    tmp_dir = Path(mkdtemp(prefix='PKGBUILD.'))
-    atexit.register(rmtree, tmp_dir)
-    with cfg_path.open('r') as cfg_file:
-        cfg = yaml.safe_load(cfg_file)
-    releases = release_list(cfg['distribs'])
-
-    gpg_info = GpgInfo(base_dir, cfg)
-    packages = package_list(cfg['packages'], releases, tmp_dir, base_dir, gpg_info)
-
-    with ThreadPoolExecutor(max_workers=PARALLELISM) as executor:
+def build_packages(packages, parallelism: int = None):
+    with ThreadPoolExecutor(max_workers=parallelism) as executor:
         try:
+            tmp_dir = Path(mkdtemp(prefix='PKGBUILD.'))
+            atexit.register(rmtree, tmp_dir)
+            order_packages(packages)
+
             in_progress = set()
             waiting = set(packages)
             while (len(waiting) + len(in_progress)) > 0:
                 for pkg_cfg in {pkg_cfg for pkg_cfg in waiting if pkg_cfg.ready()}:
                     waiting.remove(pkg_cfg)
-                    in_progress.add(executor.submit(pkg_cfg.build))
+                    in_progress.add(executor.submit(pkg_cfg.build, tmp_dir))
                 if len(in_progress) == 0:
                     raise Exception('Invalid scheduling: no task ready')
                 done, in_progress = wait(
@@ -558,29 +612,73 @@ def build_packages(cfg_path):
                     done_pkg.result()
         except BaseException:
             executor.shutdown(False)
-            print(
-                "\033[33m[WARNING]\033[39m * Asking remaining tasks to terminate...")
             cancellation_request()
             raise
 
-        output_path = base_dir / cfg.get('repository', {}).get('path', 'repositories')
-        build_deb_repo(tmp_dir, packages, gpg_info, output_path)
-        build_rpm_repo(tmp_dir, packages, gpg_info, output_path)
-
 
 def main():
+    base_dir = Path.cwd().absolute()
+
+    parser = argparse.ArgumentParser(description='Builds deb & RPM repositories.',
+                                        allow_abbrev=False)
+    parser.add_argument('-p', '--passphrase', action='store',
+                        help='The passphrase for the GPG release key')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='Wether to run in verbose mode')
+    parser.add_argument('-i', '--interactive', action='store_true',
+                        help='Wether to run in interactive mode')
+    parser.add_argument('-j', '--jobs', action='store', nargs='?', type=int, default=None,
+                        help='Number of jobs to run in parallel')
+    parser.add_argument('build_conf', action='store', metavar='build.conf', nargs='?',
+                        default='build.conf', help='Build configuration file')
+    args = parser.parse_args()
+
+    global VERBOSE
+    VERBOSE = args.verbose
+    if args.jobs is None and args.verbose:
+        args.jobs = 1
+    elif args.jobs is None:
+        args.jobs = cpu_count() + 1
+
     try:
-        base_dir = Path.cwd().absolute()
+        with (base_dir/args.build_conf).open('r') as cfg_file:
+            cfg = yaml.safe_load(cfg_file)
 
-        if len(argv) > 2:
-            print('Usage : ' + argv[0] + ' [<build.conf>]')
+        keyfile = base_dir / cfg.get('gpg', {}).get('file', 'key.gpg')
+        keyid = cfg.get('gpg', {}).get('id', None)
+        uid = cfg.get('gpg', {}).get('uid', None)
+        gpg = GpgInfo(keyfile, keyid, args.passphrase, uid)
 
-        if len(argv) < 2:
-            cfg_path = base_dir / 'build.conf'
-        else:
-            cfg_path = base_dir / argv[-1]
+        downloader = Downloader(verbose=args.verbose, cancellation_point=cancellation_point)
 
-        build_packages(cfg_path)
+        packages = set()
+        for name, pkg_cfg in cfg['packages'].items():
+            if not isinstance(pkg_cfg, dict):
+                pkg_cfg = {'value': pkg_cfg}
+            for dist_release in release_list(cfg['distribs']):
+                if dist_release in release_list(pkg_cfg.get('disable', {})):
+                    continue
+                if 'debian' in dist_release.distrib.id_like:
+                    packages.add(DebPackageBuilder(dist_release, base_dir, gpg, name, downloader,
+                                                   pkg_cfg.get('orig', None)))
+                if 'fedora' in dist_release.distrib.id_like:
+                    packages.add(RpmPackageBuilder(dist_release, base_dir, gpg, name))
+
+        output_path = base_dir / cfg.get('repository', {}).get('path', 'repositories')
+        url = cfg.get('repository', {}).get('url')
+        name = cfg.get('repository', {}).get('name')
+        description = cfg.get('repository', {}).get('description')
+
+        build_packages(packages, parallelism=args.jobs)
+
+        DebRepoBuilder(output_path, gpg, url, name, description).build(packages)
+        RpmRepoBuilder(output_path, gpg, url, name, description).build(packages)
+
+    except KeyboardInterrupt as err:
+        if args.interactive:
+            input("Press Enter to clean-up and continue...")
+            raise
+        exit(1)
     except CalledProcessError as err:
         print("\033[31m[ERROR]\033[39m   * Error while running subprocess:\n$ " +
               ' '.join([str(ce) for ce in err.cmd]), file=stderr)
@@ -589,14 +687,16 @@ def main():
         if err.stderr is not None:
             print(err.stderr, file=stderr)
         print(file=stderr)
-        if INTERACTIVE:
+        if args.interactive:
             input("Press Enter to clean-up and quit...")
-        raise
+            raise
+        exit(2)
     except Exception as err:
         print("\033[31m[ERROR]\033[39m   * " + str(err))
-        if INTERACTIVE:
+        if args.interactive:
             input("Press Enter to clean-up and continue...")
-        raise
+            raise
+        exit(3)
 
 
 if __name__ == '__main__':

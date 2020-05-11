@@ -65,8 +65,9 @@ class DistInfo:
 
     def releases(self, id: str = None, codename: str = None, cpe: str = None, suite: str = None,
                  release_date: date = None, eol_date: date = None, released: bool = None,
-                 supported: bool = None, eoled: bool = None) -> List[ReleaseInfo]:
-        def __filter_func(rel: DistInfo):
+                 supported: bool = None, eoled: bool = None, after: ReleaseInfo = None,
+                 before: ReleaseInfo = None) -> List[ReleaseInfo]:
+        def __filter_func(rel: ReleaseInfo):
             if id is not None and rel.id != str(id):
                 return False
             if codename is not None and rel.codename != str(codename):
@@ -84,6 +85,10 @@ class DistInfo:
             if supported is not None and rel.supported() != bool(supported):
                 return False
             if eoled is not None and rel.eoled() != bool(eoled):
+                return False
+            if after is not None and not rel > after:
+                return False
+            if before is not None and not rel < before:
                 return False
             return True
         return sorted(filter(__filter_func, self._releases))

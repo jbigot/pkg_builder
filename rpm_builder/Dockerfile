@@ -8,17 +8,17 @@ VOLUME /localrepo
 
 RUN dnf upgrade -y \
  || yum upgrade -y \
- && dnf install -y --setopt=tsflags=nodocs \
+ && dnf install -y --setopt=tsflags=nodocs --setopt=install_weak_deps=False --best \
     rpm-build \
     'dnf-command(builddep)' \
     nosync \
  || yum install -y --setopt=tsflags=nodocs \
     rpm-build \
     yum-utils \
- && dnf clean all -y --enablerepo='*' \
- || yum clean all -y --enablerepo='*' \
  && dnf upgrade -y \
  || yum upgrade -y \
+ && dnf clean all -y --enablerepo='*' \
+ || yum clean all -y --enablerepo='*' \
  && rm -f /*.log ${HOME}/*
 
 ENTRYPOINT ["/bin/bash", "/usr/local/bin/entrypoint"]

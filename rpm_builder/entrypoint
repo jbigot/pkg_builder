@@ -18,10 +18,8 @@ gpgcheck=0
 enabled=1
 EOF
 dnf config-manager --add-repo /tmp/localrepo.repo || true
-dnf config-manager --set-enabled PowerTools || true
-dnf -y install epel-release || true
 
-bgrun dnf builddep -y /src/*.spec
+bgrun dnf builddep -y --setopt=tsflags=nodocs --setopt=install_weak_deps=False --best /src/*.spec
 
 bgrun bash -lc 'rpmbuild \
 	--define "_topdir    /tmp" \
