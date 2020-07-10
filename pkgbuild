@@ -59,12 +59,13 @@ class GpgInfo:
                   + ' --passphrase ' + quote(self.passphrase('')) + ' "$@"', file=gpg_bin_raw)
         self._gpg_bin.chmod(0o700)
 
-        data = cheched_run(['gpg2', '--batch', '--with-colons', '--with-fingerprint',
-                            '--fixed-list-mode']+self.passphrase('', ['--passphrase']) +
-                           ['--show-keys', self.ring()], cwd=self._home_dir, return_stdout=True)
+        data = cheched_run(['gpg2', '--batch', '--homedir', self.home(), '--with-colons',
+                            '--with-fingerprint', '--fixed-list-mode'] +
+                           self.passphrase('', ['--passphrase'])+['--list-keys'],
+                           cwd=self._home_dir, return_stdout=True)
         in_key = False
-        for l in data.splitlines():
-            res = l.split(':')
+        for line in data.splitlines():
+            res = line.split(':')
             if res[0] == 'sec':
                 in_key = False
                 if self._keyid is None or res[4].upper()[-8:] == self._keyid[-8:]:
