@@ -8,7 +8,7 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
 import json
-from os import cpu_count, link
+from os import cpu_count, geteuid, getegid, link
 from pathlib import Path
 import re
 import socket
@@ -262,11 +262,11 @@ class DebPackageBuilder:
 
             # Generate the automated entry in changelog
             version = str(changelog.version)
-            if self.dist_release.id is not None:
+            if self.dist_release.id != '':
                 version += '~bpo' + self.dist_release.id
             chlg_date = parsedate_to_datetime(changelog.date)
             chlg_date = (datetime.now(tz=chlg_date.tzinfo) - chlg_date)
-            version += '.pdidev.' + str(int(chlg_date.total_seconds()))
+            version += '.b' + str(int(chlg_date.total_seconds()))
             changelog.new_block(
                 package=changelog.package,
                 version=version,
@@ -298,19 +298,15 @@ class DebPackageBuilder:
 
             # Build the package in docker
             cheched_run(['docker', 'run', '--rm', '-eDH_VERBOSE=1',
-                         '--mount', 'type=bind,source=' +
-                         str(pkg_dir) + ',target=/src',
-                         '--mount', 'type=bind,source=' +
-                         str(deps_dir) + ',target=/deps',
-                         '--mount', 'type=bind,source=' +
-                         str(localrepo / self.dist_release.distrib.id) +
-                         ',target=/localrepo',
+                         '--mount', 'type=bind,source=' + str(pkg_dir) + ',target=/src',
+                         '--mount', 'type=bind,source=' + str(deps_dir) + ',target=/deps',
+                         '--mount', 'type=bind,source='
+                         + str(localrepo / self.dist_release.distrib.id) + ',target=/localrepo',
                          '--tmpfs', '/tmp:exec',
-                         'pdidevel/' + self.dist_release.distrib.id +
-                         '_builder:' + self.dist_release.codename,
-                         '-j8', '-sa', '-P' + self.dist_release.distrib.id +
-                         ',' + self.dist_release.codename
-                         ])
+                         'pdidevel/' + self.dist_release.distrib.id + '_builder:'
+                         + self.dist_release.codename,
+                         '-j8', '-sa', '-P' + self.dist_release.distrib.id + ','
+                         + self.dist_release.codename])
             rmtree(localrepo)
             rmtree(deps_dir)
 
@@ -461,16 +457,14 @@ class RpmPackageBuilder:
             localrepo = wk_dir / 'repo'
             RpmRepoBuilder(localrepo, self._gpg).build(self.incomings())
 
-            cheched_run(['docker', 'run', '--rm', '--mount', 'type=bind,source=' +
-                         str(pkg_dir) +
-                         ',target=/src', '--mount', 'type=bind,source=' +
-                         str(localrepo /
-                             self.dist_release.distrib.id /
-                             self.dist_release.id) +
-                         ',target=/localrepo', '--tmpfs', '/tmp:exec', 'pdidevel/' +
-                         self.dist_release.distrib.id +
-                         '_builder:' +
-                         self.dist_release.id])
+            cheched_run(['docker', 'run', '--rm',
+                         '--mount', 'type=bind,source=' + str(pkg_dir) + ',target=/src',
+                         '--mount', 'type=bind,source='
+                         + str(localrepo / self.dist_release.distrib.id / self.dist_release.id)
+                         + ',target=/localrepo',
+                         '--tmpfs', '/tmp:exec',
+                         'pdidevel/' + self.dist_release.distrib.id + '_builder:'
+                         + self.dist_release.id])
             rmtree(localrepo)
 
             # Sign the generated packages
@@ -539,7 +533,11 @@ class RpmRepoBuilder:
 
         for dist_release in releases_set:
             release_dir = self._output_dir / dist_release.distrib.id / dist_release.id
-            cheched_run(['createrepo', '.'], cwd=release_dir)
+            #cheched_run(['createrepo', '.'], cwd=release_dir)
+            cheched_run(['docker', 'run', '--rm',
+                         '--mount', 'type=bind,source=' + str(release_dir) + ',target=/data',
+                         '--user', str(geteuid()) + ':' + str(getegid()),
+                         'pdidevel/rpm_tools', 'createrepo_c', '/data'])
             (release_dir / 'repodata' / 'repomd.xml.asc').unlink(missing_ok=True)
             cheched_run([self._gpg.bin(), '-b', '-a', 'repodata/repomd.xml'], cwd=release_dir)
             if self._url is not None:
