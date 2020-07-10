@@ -13,6 +13,11 @@ def main():
                         help='Publish the images')
     args = parser.parse_args()
 
+    print("\n\n   ===> docker build rpm_tools <===\n")
+    res = run(['docker', 'build', '--force-rm', '-t', 'pdidevel/rpm_tools', 'rpm_tools']).returncode
+    if res == 0 and args.publish:
+        run(['docker', 'push', 'pdidevel/rpm_tools']).returncode
+
     for distrib in distributions():
         for release in distrib.releases(eoled=False):
             release_id = release.id
