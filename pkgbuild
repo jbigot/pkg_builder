@@ -61,7 +61,7 @@ class GpgInfo:
 
         data = cheched_run(['gpg2', '--batch', '--homedir', self.home(), '--with-colons',
                             '--with-fingerprint', '--fixed-list-mode'] +
-                           self.passphrase('', ['--passphrase'])+['--list-keys'],
+                           self.passphrase('', ['--passphrase'])+['--list-secret-keys'],
                            cwd=self._home_dir, return_stdout=True)
         in_key = False
         for line in data.splitlines():
@@ -76,7 +76,7 @@ class GpgInfo:
             elif res[0] == 'fpr' and in_key:
                 self._keyid = res[9].upper()
             elif res[0] == 'uid' and in_key:
-                if self._uid is None or res[9].trim() == self._uid.trim():
+                if self._uid is None or res[9].strip() == self._uid.strip():
                     self._uid = res[9]
 
     def _combine(self, prel, pre, data, post, postl):
