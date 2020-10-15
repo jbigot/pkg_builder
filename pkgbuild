@@ -8,7 +8,7 @@ from datetime import datetime
 from email.utils import parsedate_to_datetime
 from hashlib import sha256
 import json
-from os import cpu_count, link
+from os import cpu_count, getegid, geteuid, link
 from pathlib import Path
 import re
 import socket
@@ -519,7 +519,7 @@ class RpmRepoBuilder:
         releases_set = set()
         self._output_dir.mkdir(parents=True, exist_ok=True)
         for pkg in pkgs:
-            if not pkg.outdir.is_dir():
+            if pkg.outdir is None or not pkg.outdir.is_dir():
                 continue
             release_dir = self._output_dir / pkg.dist_release.distrib.id / pkg.dist_release.id
             release_dir.mkdir(parents=True, exist_ok=True)
@@ -540,7 +540,9 @@ class RpmRepoBuilder:
 
         for dist_release in releases_set:
             release_dir = self._output_dir / dist_release.distrib.id / dist_release.id
-            cheched_run(['createrepo', '.'], cwd=release_dir)
+
+            cheched_run(['docker', 'run', '--rm', '--user='+str(geteuid())+':'+str(getegid()), '--mount', 'type=bind,source=' +
+                         str(release_dir) + ',target=/data', 'pdidevel/rpm_tools', '.'])
             (release_dir / 'repodata' / 'repomd.xml.asc').unlink(missing_ok=True)
             cheched_run([self._gpg.bin(), '-b', '-a', 'repodata/repomd.xml'], cwd=release_dir)
             if self._url is not None:
