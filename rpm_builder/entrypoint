@@ -21,6 +21,7 @@ dnf config-manager --add-repo /tmp/localrepo.repo || true
 
 bgrun dnf builddep -y --setopt=tsflags=nodocs --setopt=install_weak_deps=False --best /src/*.spec
 
+mkdir -p "/tmp/BUILD" "/tmp/output" "/tmp/SOURCES" "/tmp/output/src"
 bgrun bash -lc 'rpmbuild \
 	--define "_topdir    /tmp" \
 	--define "_builddir  %{_topdir}/BUILD" \
