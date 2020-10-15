@@ -27,7 +27,7 @@ def main():
                 builder = 'deb_builder'
             docker_image = 'pdidevel/'+distrib.id+'_builder:'+release_id
             docker_release = release_id
-            if 'debian' == distrib.id:
+            if 'debian' == distrib.id and release.codename != 'experimental':
                 docker_release = docker_release+'-slim'
             print("\n\n   ===> docker build "+docker_image+" <===\n")
             res = run(['docker', 'build', '--force-rm', '-t', docker_image,
