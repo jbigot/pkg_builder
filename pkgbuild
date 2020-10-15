@@ -332,9 +332,9 @@ class DebPackageBuilder:
             print("\033[33m[CANCEL]\033[39m  * building deb for " +
                   self._name + ' on ' + str(self.dist_release) + "!")
             raise
-        except BaseException:
+        except BaseException as e:
             print("\033[31m[FAILURE]\033[39m * building deb for " +
-                  self._name + ' on ' + str(self.dist_release) + "!")
+                  self._name + ' on ' + str(self.dist_release) + "! "+str(e))
             raise
 
 
