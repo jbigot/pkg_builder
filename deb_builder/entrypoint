@@ -13,6 +13,7 @@ then
 fi
 
 bgrun apt-get -y update
+bgrun apt-get -y dist-upgrade
 bgrun dpkg -R --unpack /deps
 bgrun apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install
 

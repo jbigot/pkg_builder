@@ -3,6 +3,9 @@ on:
   push:
     branches:
     - master
+  pull_request:
+  schedule:
+    - cron:  '0 2 * * *' # nightly build at 2AM
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -12,7 +15,11 @@ jobs:
     - name: Set up Python
       uses: actions/setup-python@v1
       with: { python-version: 3.8 }
-    - name: Build
+    - name: Build docker images
+      run: |
+        ./build
+    - name: Publish docker images
+      if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
       env:
         DOCKER_TOKEN: ${{ secrets.DockerToken }}
       run: |

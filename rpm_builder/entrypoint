@@ -19,6 +19,8 @@ enabled=1
 EOF
 dnf config-manager --add-repo /tmp/localrepo.repo || true
 
+bgrun dnf upgrade -y || bgrun yum upgrade -y
+
 bgrun dnf builddep -y --setopt=tsflags=nodocs --setopt=install_weak_deps=False --best /src/*.spec
 
 mkdir -p "/tmp/BUILD" "/tmp/output" "/tmp/SOURCES" "/tmp/output/src"
