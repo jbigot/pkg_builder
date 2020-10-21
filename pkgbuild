@@ -263,7 +263,7 @@ class DebPackageBuilder:
 
             # Generate the automated entry in changelog
             version = str(changelog.version)
-            if self.dist_release.id is not None:
+            if self.dist_release.id is not None and self.dist_release.id != '':
                 version += '~bpo' + self.dist_release.id
             chlg_date = parsedate_to_datetime(changelog.date)
             chlg_date = (datetime.now(tz=chlg_date.tzinfo) - chlg_date)
