@@ -16,6 +16,7 @@ from shlex import quote
 from shutil import copy2, copytree, rmtree
 from subprocess import Popen, CalledProcessError, PIPE, STDOUT
 from sys import argv, stderr
+from string import Template
 from tempfile import mkdtemp, TemporaryDirectory
 from time import sleep, time
 from typing import Iterable, Set
@@ -304,7 +305,7 @@ class DebPackageBuilder:
                          '--mount', 'type=bind,source=' +
                          str(deps_dir) + ',target=/deps',
                          '--mount', 'type=bind,source=' +
-                         str(localrepo / self.dist_release.distrib.id) +
+                         str(localrepo) +
                          ',target=/localrepo',
                          '--tmpfs', '/tmp:exec',
                          'pdidevel/' + self.dist_release.distrib.id +
@@ -340,13 +341,14 @@ class DebPackageBuilder:
 
 class DebRepoBuilder:
     def __init__(self, output_dir: Path, gpg: GpgInfo, url: str = None, name: str = None,
-                 description: str = None):
+                 description: str = None, readme_tpl: Path = None):
         self._output_dir = output_dir
         self._gpg = gpg
         self._url = url
         if url is not None:
             self._name = name if name is not None else Path(str(urlparse(self._url).path)).name
             self._description = description if description is not None else name
+        self._readme_tpl = readme_tpl
 
     def build(self, pkgs: Iterable[DebPackageBuilder]):
         pkgs = list(filter(lambda p: 'debian' in p.dist_release.distrib.id_like, pkgs))
@@ -354,6 +356,8 @@ class DebRepoBuilder:
         if len(pkgs) == 0:
             return
 
+        distribs = set()
+        install = ""
         with TemporaryDirectory() as tmp_dir:
             tmp_dir = Path(tmp_dir)
             aptly_confpath = tmp_dir / 'aptly.conf'
@@ -391,17 +395,31 @@ class DebRepoBuilder:
                           '-repo=' + pkg.dist_release.uid() + ':' + pkg.dist_release.suite,
                           str(pkg.outdir))
             for dist_release in repos:
+                distribs.add(str(dist_release.distrib))
+                if self._readme_tpl is not None:
+                    with open(self._readme_tpl/('INSTALL.'+str(dist_release.distrib.id)+'.tpl.md')) as template_file:
+                        install += Template(template_file.read()).substitute(dist_release=str(dist_release), dist_release_id=str(dist_release.id), baseurl=str(self._url))
                 publish_repo = (['publish', 'repo', '-batch', self._gpg.ring('-secret-keyring='),
                                  '-force-overwrite' ] + self._gpg.id8('-gpg-key=', []) +
                                 self._gpg.passphrase('-passphrase=', []))
                 if self._url is not None:
                     ['-notautomatic=yes', '-butautomaticupgrades=yes']
                     publish_repo += ['-label='+self._description, '-origin='+self._name]
+                    
                 aptly(*publish_repo, dist_release.uid(),
-                      'filesystem:default:' + dist_release.distrib.id)
+                      'filesystem:default:')
                 if dist_release.suite is not None:
                     aptly(*publish_repo, dist_release.uid() + ':' + dist_release.suite,
-                          'filesystem:default:' + dist_release.distrib.id)
+                          'filesystem:default:')
+
+        if self._url is not None:
+            (self._output_dir / (self._name + '-archive-keyring.gpg')).unlink(missing_ok=True)
+            cheched_run([self._gpg.bin(), '--export', '--output',
+                         str(self._output_dir / (self._name + '-archive-keyring.gpg'))], cwd=self._output_dir)
+        if self._readme_tpl is not None:
+            with open(self._output_dir / 'README.md', mode='w') as readme_file:
+                with open(self._readme_tpl/'README.tpl.md') as template_file:
+                    readme_file.write(Template(template_file.read()).substitute(distribs=" ".join(list(distribs)), install=install))
 
 
 class RpmPackageBuilder:
@@ -465,9 +483,7 @@ class RpmPackageBuilder:
             cheched_run(['docker', 'run', '--rm', '--mount', 'type=bind,source=' +
                          str(pkg_dir) +
                          ',target=/src', '--mount', 'type=bind,source=' +
-                         str(localrepo /
-                             self.dist_release.distrib.id /
-                             self.dist_release.id) +
+                         str(localrepo / self.dist_release.id) +
                          ',target=/localrepo', '--tmpfs', '/tmp:exec', 'pdidevel/' +
                          self.dist_release.distrib.id +
                          '_builder:' +
@@ -503,13 +519,14 @@ class RpmPackageBuilder:
 
 class RpmRepoBuilder:
     def __init__(self, output_dir: Path, gpg: GpgInfo, url: str = None, name: str = None,
-                 description: str = None):
+                 description: str = None, readme_tpl: Path = None):
         self._output_dir = output_dir
         self._gpg = gpg
         self._url = url
         if url is not None:
             self._name = name if name is not None else str(Path(urlparse(str(self._url)).path).name)
             self._description = description if description is not None else name
+        self._readme_tpl = readme_tpl
 
     def build(self, pkgs: Iterable[RpmPackageBuilder]):
         pkgs = list(filter(lambda p: 'fedora' in p.dist_release.distrib.id_like, pkgs))
@@ -521,7 +538,7 @@ class RpmRepoBuilder:
         for pkg in pkgs:
             if pkg.outdir is None or not pkg.outdir.is_dir():
                 continue
-            release_dir = self._output_dir / pkg.dist_release.distrib.id / pkg.dist_release.id
+            release_dir = self._output_dir / pkg.dist_release.id
             release_dir.mkdir(parents=True, exist_ok=True)
             for file in pkg.outdir.iterdir():
                 if file.suffix == '.rpm' and len(file.suffixes) >= 2:
@@ -537,16 +554,20 @@ class RpmRepoBuilder:
             (self._output_dir / (self._name + '.key')).unlink(missing_ok=True)
             cheched_run([self._gpg.bin(), '--armor', '--export', '--output',
                          str(self._output_dir / (self._name + '.key'))], cwd=self._output_dir)
-
+        
+        install = ""
+        distribs = set()
         for dist_release in releases_set:
-            release_dir = self._output_dir / dist_release.distrib.id / dist_release.id
+            release_dir = self._output_dir / dist_release.id
+
+            distribs.add(str(dist_release.distrib))
 
             cheched_run(['docker', 'run', '--rm', '--user='+str(geteuid())+':'+str(getegid()), '--mount', 'type=bind,source=' +
                          str(release_dir) + ',target=/data', 'pdidevel/rpm_tools', '.'])
             (release_dir / 'repodata' / 'repomd.xml.asc').unlink(missing_ok=True)
             cheched_run([self._gpg.bin(), '-b', '-a', 'repodata/repomd.xml'], cwd=release_dir)
             if self._url is not None:
-                baseurl = urljoin(self._url, dist_release.distrib.id + '/' + dist_release.id)
+                baseurl = urljoin(self._url, dist_release.id)
                 repo_data = ConfigParser()
                 repo_data.add_section(self._name)
                 repo_data.set(self._name, 'name', self._description+' ('+str(dist_release)+')')
@@ -558,6 +579,15 @@ class RpmRepoBuilder:
                 repo_data.set(self._name, 'enabled', '1')
                 with (release_dir / (self._name + '.repo')).open('w') as repo_file:
                     repo_data.write(repo_file, space_around_delimiters=False)
+                if self._readme_tpl is not None:
+                    with open(self._readme_tpl/('INSTALL.'+str(dist_release.distrib.id)+'.tpl.md')) as template_file:
+                        install+=Template(template_file.read()).substitute(dist_release=str(dist_release), dist_release_id=str(dist_release.id), baseurl=str(baseurl))
+
+        if self._readme_tpl is not None:
+            with open(self._output_dir / 'README.md', mode='w') as readme_file:
+                with open(self._readme_tpl/'README.tpl.md') as template_file:
+                    readme_file.write(Template(template_file.read()).substitute(distribs=" ".join(list(distribs)), install=install))
+            
 
 
 def order_packages(pkglst):
@@ -647,35 +677,45 @@ def main():
         with (base_dir/args.build_conf).open('r') as cfg_file:
             cfg = yaml.safe_load(cfg_file)
 
-        keyfile = base_dir / cfg.get('gpg', {}).get('file', 'key.gpg')
-        keyid = cfg.get('gpg', {}).get('id', None)
-        uid = cfg.get('gpg', {}).get('uid', None)
-        gpg = GpgInfo(keyfile, keyid, args.passphrase, uid)
-
         downloader = Downloader(verbose=args.verbose, cancellation_point=cancellation_point)
 
         packages = set()
-        for name, pkg_cfg in cfg['packages'].items():
-            if not isinstance(pkg_cfg, dict):
-                pkg_cfg = {'value': pkg_cfg}
-            for dist_release in release_list(cfg['distribs']):
-                if dist_release in release_list(pkg_cfg.get('disable', {})):
-                    continue
-                if 'debian' in dist_release.distrib.id_like:
-                    packages.add(DebPackageBuilder(dist_release, base_dir, gpg, name, downloader,
-                                                   pkg_cfg.get('orig', None)))
-                if 'fedora' in dist_release.distrib.id_like:
-                    packages.add(RpmPackageBuilder(dist_release, base_dir, gpg, name))
+        repo_builders = []
+        for dist_id, distrib_cfg in cfg['distribs'].items():
+            keyfile = base_dir / distrib_cfg.get('gpg', {}).get('file', 'key.gpg')
+            keyid = distrib_cfg.get('gpg', {}).get('id', None)
+            uid = distrib_cfg.get('gpg', {}).get('uid', None)
+            gpg = GpgInfo(keyfile, keyid, args.passphrase, uid)
 
-        output_path = base_dir / cfg.get('repository', {}).get('path', 'repositories')
-        url = cfg.get('repository', {}).get('url')
-        name = cfg.get('repository', {}).get('name')
-        description = cfg.get('repository', {}).get('description')
+            dist_packages = set()
+            
+            for dist_release in release_list({dist_id: distrib_cfg.get('versions', {})}):
+                for name, pkg_cfg in cfg['packages'].items():
+                    if not isinstance(pkg_cfg, dict):
+                        pkg_cfg = {'value': pkg_cfg}
+                    if dist_release in release_list(pkg_cfg.get('disable', {})):
+                        continue
+                    if 'debian' in dist_release.distrib.id_like:
+                        dist_packages.add(DebPackageBuilder(dist_release, base_dir, gpg, name, downloader,
+                                                    pkg_cfg.get('orig', None)))
+                    if 'fedora' in dist_release.distrib.id_like:
+                        dist_packages.add(RpmPackageBuilder(dist_release, base_dir, gpg, name))
+            
+            output_path = base_dir / distrib_cfg.get('repository', {}).get('path', 'repositories')
+            url = distrib_cfg.get('repository', {}).get('url')
+            name = distrib_cfg.get('repository', {}).get('name')
+            description = distrib_cfg.get('repository', {}).get('description')
+            if 'debian' in next(distributions(id=dist_id)).id_like:
+                repo_builder = DebRepoBuilder(output_path, gpg, url, name, description, base_dir/'README.tpl')
+            elif 'fedora' in next(distributions(id=dist_id)).id_like:
+                repo_builder = RpmRepoBuilder(output_path, gpg, url, name, description)
+                
+            repo_builders.append((repo_builder, dist_packages, ))
+            packages.update(dist_packages)
 
         build_packages(packages, parallelism=args.jobs)
-
-        DebRepoBuilder(output_path, gpg, url, name, description).build(packages)
-        RpmRepoBuilder(output_path, gpg, url, name, description).build(packages)
+        for builder in repo_builders:
+            builder[0].build(builder[1])
 
     except KeyboardInterrupt as err:
         if args.interactive:
