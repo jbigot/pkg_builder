@@ -398,7 +398,7 @@ class DebRepoBuilder:
                 distribs.add(str(dist_release.distrib))
                 if self._readme_tpl is not None:
                     with open(self._readme_tpl/('INSTALL.'+str(dist_release.distrib.id)+'.tpl.md')) as template_file:
-                        install += Template(template_file.read()).substitute(dist_release=str(dist_release), dist_release_id=str(dist_release.id), baseurl=str(self._url))
+                        install += Template(template_file.read()).substitute(dist_release=str(dist_release), codename=str(dist_release.codename), baseurl=str(self._url))
                 publish_repo = (['publish', 'repo', '-batch', self._gpg.ring('-secret-keyring='),
                                  '-force-overwrite' ] + self._gpg.id8('-gpg-key=', []) +
                                 self._gpg.passphrase('-passphrase=', []))
@@ -581,7 +581,7 @@ class RpmRepoBuilder:
                     repo_data.write(repo_file, space_around_delimiters=False)
                 if self._readme_tpl is not None:
                     with open(self._readme_tpl/('INSTALL.'+str(dist_release.distrib.id)+'.tpl.md')) as template_file:
-                        install+=Template(template_file.read()).substitute(dist_release=str(dist_release), dist_release_id=str(dist_release.id), baseurl=str(baseurl))
+                        install+=Template(template_file.read()).substitute(dist_release=str(dist_release), codename=str(dist_release.codename), baseurl=str(baseurl))
 
         if self._readme_tpl is not None:
             with open(self._output_dir / 'README.md', mode='w') as readme_file:
@@ -708,7 +708,7 @@ def main():
             if 'debian' in next(distributions(id=dist_id)).id_like:
                 repo_builder = DebRepoBuilder(output_path, gpg, url, name, description, base_dir/'README.tpl')
             elif 'fedora' in next(distributions(id=dist_id)).id_like:
-                repo_builder = RpmRepoBuilder(output_path, gpg, url, name, description)
+                repo_builder = RpmRepoBuilder(output_path, gpg, url, name, description, base_dir/'README.tpl')
                 
             repo_builders.append((repo_builder, dist_packages, ))
             packages.update(dist_packages)
