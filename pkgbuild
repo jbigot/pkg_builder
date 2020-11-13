@@ -21,7 +21,7 @@ from tempfile import mkdtemp, TemporaryDirectory
 from time import sleep, time
 from typing import Iterable, Set
 from urllib.error import URLError
-from urllib.parse import urljoin, urlparse
+from urllib.parse import ParseResult, urljoin, urlparse, urlunparse
 from urllib.request import url2pathname, urlopen
 
 from debian.changelog import Changelog, format_date
@@ -33,6 +33,11 @@ from distinfo import ReleaseInfo, distributions
 
 VERBOSE = None
 
+
+def urlnormalize(url):
+    su = urlparse(url)
+    su = ParseResult(su.scheme, su.netloc, str(Path(su.path)), su.params, su.query, su.fragment)
+    return urlunparse(su)
 
 class GpgInfo:
     def __init__(self, keyfile, keyid=None, passphrase=None, uid=None):
@@ -346,6 +351,7 @@ class DebRepoBuilder:
         self._gpg = gpg
         self._url = url
         if url is not None:
+            self._url = urlnormalize(self._url)
             self._name = name if name is not None else Path(str(urlparse(self._url).path)).name
             self._description = description if description is not None else name
         self._readme_tpl = readme_tpl
