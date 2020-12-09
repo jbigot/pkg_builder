@@ -23,12 +23,12 @@ bgrun dnf upgrade -y || bgrun yum upgrade -y
 
 bgrun dnf builddep -y --setopt=tsflags=nodocs --setopt=install_weak_deps=False --best /src/*.spec
 
-mkdir -p "/tmp/BUILD" "/tmp/output" "/tmp/SOURCES" "/tmp/output/src"
+mkdir -p "/tmp/BUILD" "/tmp/output" "/tmp/output/src"
 bgrun bash -lc 'rpmbuild \
 	--define "_topdir    /tmp" \
 	--define "_builddir  %{_topdir}/BUILD" \
 	--define "_rpmdir    %{_topdir}/output" \
-	--define "_sourcedir %{_topdir}/SOURCES" \
+	--define "_sourcedir /src" \
 	--define "_specdir   /src" \
 	--define "_srcrpmdir %{_topdir}/output/src" \
 	--define "_tmppath   tmp" \

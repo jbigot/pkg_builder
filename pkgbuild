@@ -429,11 +429,13 @@ class DebRepoBuilder:
 
 
 class RpmPackageBuilder:
-    def __init__(self, dist_release: ReleaseInfo, base_dir: Path, gpg: GpgInfo, name: str):
+    def __init__(self, dist_release: ReleaseInfo, base_dir: Path, gpg: GpgInfo, name: str,
+                 downloader: Downloader, orig_url: str):
         self.dist_release = dist_release
         self._spec = base_dir / name / (name+'.spec')
         self._gpg = gpg
         self._name = name
+        self._downloader = downloader
 
         self._finished = False
         self._depends = set([self])  # self depend => never ready
@@ -485,6 +487,14 @@ class RpmPackageBuilder:
 
             localrepo = wk_dir / 'repo'
             RpmRepoBuilder(localrepo, self._gpg).build(self.incomings())
+            
+            all_urls = cheched_run(['rpmspec', '-P', str(self._spec)],
+                                      return_stdout=True).splitlines()
+            all_urls = [ l for l in all_urls if re.match(r'^\s*source[0-9]*\s*:', l, re.IGNORECASE) is not None]
+            all_urls = [ re.sub(r'^\s*source[0-9]*\s*:\s*', '', l, 1, re.IGNORECASE) for l in all_urls ]
+            for orig_url in all_urls:
+                orig_file = Path(urlparse(orig_url).path).name
+                self._downloader.download(orig_url, pkg_dir / orig_file )
 
             cheched_run(['docker', 'run', '--rm', '--mount', 'type=bind,source=' +
                          str(pkg_dir) +
@@ -705,7 +715,8 @@ def main():
                         dist_packages.add(DebPackageBuilder(dist_release, base_dir, gpg, name, downloader,
                                                     pkg_cfg.get('orig', None)))
                     if 'fedora' in dist_release.distrib.id_like:
-                        dist_packages.add(RpmPackageBuilder(dist_release, base_dir, gpg, name))
+                        dist_packages.add(RpmPackageBuilder(dist_release, base_dir, gpg, name, downloader,
+                                                    pkg_cfg.get('orig', None)))
             
             output_path = base_dir / distrib_cfg.get('repository', {}).get('path', 'repositories')
             url = distrib_cfg.get('repository', {}).get('url')
