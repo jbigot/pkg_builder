@@ -20,7 +20,6 @@ RUN echo "force-unsafe-io" > /etc/dpkg/dpkg.cfg.d/02apt-speedup \
  && apt-get install -y --no-install-recommends \
     build-essential \
     eatmydata \
-    </dev/null \
  && apt-get dist-upgrade -y \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* \
@@ -31,5 +30,6 @@ RUN echo "force-unsafe-io" > /etc/dpkg/dpkg.cfg.d/02apt-speedup \
 
 ENTRYPOINT ["/bin/bash", "/entrypoint"]
 ENV DIST_CODENAME="${DIST_CODENAME}"
+ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libeatmydata.so
 
 COPY entrypoint /

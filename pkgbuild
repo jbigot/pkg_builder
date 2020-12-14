@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from configparser import ConfigParser
 from datetime import datetime
 from email.utils import parsedate_to_datetime
+import filetype
 from hashlib import sha256
 import json
 from os import cpu_count, getegid, geteuid, link
@@ -289,9 +290,10 @@ class DebPackageBuilder:
             if fmt == '3.0 (quilt)':
                 self._orig_url = self._orig_url.format(
                     upstream_version=changelog.upstream_version, package=changelog.package)
-                orig_file = (changelog.package + '_' + changelog.upstream_version + '.orig.tar' +
-                             Path(urlparse(self._orig_url).path).suffix)
-                self._downloader.download(self._orig_url, pkg_dir / orig_file)
+                orig_file_noext = (changelog.package + '_' + changelog.upstream_version + '.orig.tar.')
+                self._downloader.download(self._orig_url, pkg_dir / orig_file_noext)
+                orig_file = orig_file_noext + filetype.guess(str(pkg_dir / orig_file_noext)).extension
+                (pkg_dir / orig_file_noext).rename(pkg_dir / orig_file)
 
             # Generate the dependencies .deb
             deps_dir = wk_dir / 'deps'
@@ -578,8 +580,9 @@ class RpmRepoBuilder:
 
             distribs.add(str(dist_release.distrib))
 
-            cheched_run(['docker', 'run', '--rm', '--user='+str(geteuid())+':'+str(getegid()), '--mount', 'type=bind,source=' +
-                         str(release_dir) + ',target=/data', 'pdidevel/rpm_tools', '.'])
+            cheched_run(['docker', 'run', '--rm', '--user='+str(geteuid())+':'+str(getegid()),
+                         '--mount', 'type=bind,source=' + str(release_dir) + ',target=/data',
+                         'pdidevel/rpm_tools', '.'])
             (release_dir / 'repodata' / 'repomd.xml.asc').unlink(missing_ok=True)
             cheched_run([self._gpg.bin(), '-b', '-a', 'repodata/repomd.xml'], cwd=release_dir)
             if self._url is not None:
