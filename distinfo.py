@@ -114,7 +114,7 @@ def distributions(id: str = None, id_like: set = set()) -> Iterator[DistInfo]:
 
 
 def __debubun_rel(distribution: DistInfo) -> DistInfo:
-    with urlopen('https://raw.githubusercontent.com/jbigot/pkg_builder/v2/distro-info/' +
+    with urlopen('https://debian.pages.debian.net/distro-info-data/' +
                  distribution.id+'.csv') as rel_data:
         csv_data = csv.reader(TextIOWrapper(rel_data), dialect='unix')
         # skip the title line: version,codename,series,created,release,eol,eol-server
