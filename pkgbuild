@@ -194,13 +194,14 @@ class Control(Deb822, _PkgRelationMixin):
 
 class DebPackageBuilder:
     def __init__(self, dist_release: ReleaseInfo, base_dir: Path, gpg: GpgInfo, name: str,
-                 downloader: Downloader, orig_url: str):
+                 downloader: Downloader, orig_url: str, parallelism: int):
         self.dist_release = dist_release
         self._debian_dir = base_dir / name / 'debian'
         self._gpg = gpg
         self._name = name
         self._downloader = downloader
         self._orig_url = orig_url
+        self._parallelism = parallelism
 
         self._finished = False
         self.outdir = None
@@ -307,17 +308,17 @@ class DebPackageBuilder:
 
             # Build the package in docker
             cheched_run(['docker', 'run', '--rm', '-eDH_VERBOSE=1',
-                         '--mount', 'type=bind,source=' +
-                         str(pkg_dir) + ',target=/src',
-                         '--mount', 'type=bind,source=' +
-                         str(deps_dir) + ',target=/deps',
-                         '--mount', 'type=bind,source=' +
-                         str(localrepo) +
-                         ',target=/localrepo',
-                         '--tmpfs', '/tmp:exec',
+                         '--mount',
+                         'type=bind,source=' + str(pkg_dir) + ',target=/src',
+                         '--mount',
+                         'type=bind,source=' + str(deps_dir) + ',target=/deps',
+                         '--mount', 
+                         'type=bind,source=' + str(localrepo) + ',target=/localrepo',
+                         '--tmpfs', '/tmp:exec', '--shm-size=1g',
                          'pdidevel/' + self.dist_release.distrib.id +
                          '_builder:' + self.dist_release.codename,
-                         '-j8', '-sa', '-P' + self.dist_release.distrib.id +
+                         '-j'+str(self._parallelism), '-sa',
+                         '-P' + self.dist_release.distrib.id +
                          ',' + self.dist_release.codename
                          ])
             rmtree(localrepo)
@@ -432,12 +433,13 @@ class DebRepoBuilder:
 
 class RpmPackageBuilder:
     def __init__(self, dist_release: ReleaseInfo, base_dir: Path, gpg: GpgInfo, name: str,
-                 downloader: Downloader, orig_url: str):
+                 downloader: Downloader, orig_url: str, parallelism: int):
         self.dist_release = dist_release
         self._spec = base_dir / name / (name+'.spec')
         self._gpg = gpg
         self._name = name
         self._downloader = downloader
+        self._parallelism = parallelism
 
         self._finished = False
         self._depends = set([self])  # self depend => never ready
@@ -716,10 +718,10 @@ def main():
                         continue
                     if 'debian' in dist_release.distrib.id_like:
                         dist_packages.add(DebPackageBuilder(dist_release, base_dir, gpg, name, downloader,
-                                                    pkg_cfg.get('orig', None)))
+                                                    pkg_cfg.get('orig', None), args.jobs))
                     if 'fedora' in dist_release.distrib.id_like:
                         dist_packages.add(RpmPackageBuilder(dist_release, base_dir, gpg, name, downloader,
-                                                    pkg_cfg.get('orig', None)))
+                                                    pkg_cfg.get('orig', None), args.jobs))
             
             output_path = base_dir / distrib_cfg.get('repository', {}).get('path', 'repositories')
             url = distrib_cfg.get('repository', {}).get('url')
