@@ -307,14 +307,11 @@ class DebPackageBuilder:
             DebRepoBuilder(localrepo, self._gpg).build(self.__dep_packages())
 
             # Build the package in docker
-            cheched_run(['docker', 'run', '--rm', '-eDH_VERBOSE=1',
-                         '--mount',
-                         'type=bind,source=' + str(pkg_dir) + ',target=/src',
-                         '--mount',
-                         'type=bind,source=' + str(deps_dir) + ',target=/deps',
-                         '--mount', 
-                         'type=bind,source=' + str(localrepo) + ',target=/localrepo',
-                         '--tmpfs', '/tmp:exec', '--shm-size=1g',
+            cheched_run(['docker', 'run', '--rm', '-eDH_VERBOSE=1', '--shm-size=5g',
+                         '--mount', 'type=bind,source=' + str(pkg_dir) + ',target=/src',
+                         '--mount', 'type=bind,source=' + str(deps_dir) + ',target=/deps',
+                         '--mount', 'type=bind,source=' + str(localrepo) + ',target=/localrepo',
+                         '--tmpfs', '/tmp:exec',
                          'pdidevel/' + self.dist_release.distrib.id +
                          '_builder:' + self.dist_release.codename,
                          '-j'+str(self._parallelism), '-sa',
@@ -500,7 +497,7 @@ class RpmPackageBuilder:
                 orig_file = Path(urlparse(orig_url).path).name
                 self._downloader.download(orig_url, pkg_dir / orig_file )
 
-            cheched_run(['docker', 'run', '--rm', '--mount', 'type=bind,source=' +
+            cheched_run(['docker', 'run', '--rm', '--shm-size=5g', '--mount', 'type=bind,source=' +
                          str(pkg_dir) +
                          ',target=/src', '--mount', 'type=bind,source=' +
                          str(localrepo / self.dist_release.id) +
@@ -582,7 +579,7 @@ class RpmRepoBuilder:
 
             distribs.add(str(dist_release.distrib))
 
-            cheched_run(['docker', 'run', '--rm', '--user='+str(geteuid())+':'+str(getegid()),
+            cheched_run(['docker', 'run', '--rm', '--shm-size=5g', '--user='+str(geteuid())+':'+str(getegid()),
                          '--mount', 'type=bind,source=' + str(release_dir) + ',target=/data',
                          'pdidevel/rpm_tools', '.'])
             (release_dir / 'repodata' / 'repomd.xml.asc').unlink(missing_ok=True)

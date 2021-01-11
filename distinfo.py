@@ -63,6 +63,9 @@ class DistInfo:
     def uid(self):
         return self.id
 
+    def add_release(self, *args, **kwargs):
+        self._releases.add(ReleaseInfo(self, *args, **kwargs))
+
     def releases(self, id: str = None, codename: str = None, cpe: str = None, suite: str = None,
                  release_date: date = None, eol_date: date = None, released: bool = None,
                  supported: bool = None, eoled: bool = None, after: ReleaseInfo = None,
@@ -156,26 +159,59 @@ def __init_distribs():
         devel[0].suite = 'devel'
     __distribs.add(ubuntu)
 
+    centos = DistInfo("CentOS Linux", 'centos', id_like=['rhel', 'fedora'])
+    centos.add_release("8", '8', 8, cpe='cpe:/o:centos:centos:8',
+                       release_date=date(2019,  9, 24), eol_date=date(2021, 12, 31))
+    centos.add_release("7", '7', 7, cpe='cpe:/o:centos:centos:7',
+                       release_date=date(2014,  7,  7), eol_date=date(2024,  6, 30))
+    centos.add_release("6", '6', 6, cpe='cpe:/o:centos:centos:6',
+                       release_date=date(2011,  7, 10), eol_date=date(2020, 11, 30))
+    __distribs.add(centos)
+
     fedora = DistInfo("Fedora", 'fedora')
-    fedora._releases.add(ReleaseInfo(fedora, "Rawhide", '33', 33, suite='rawhide'))
-    fedora._releases.add(ReleaseInfo(fedora, "32", '32', 32,
-                                     cpe='cpe:/o:fedoraproject:fedora:32', suite='branched'))
-    fedora._releases.add(ReleaseInfo(fedora, "31", '31', 31,
-                                     cpe='cpe:/o:fedoraproject:fedora:31',
-                                     release_date=date(2019, 10, 29)))
-    fedora._releases.add(ReleaseInfo(fedora, "30", '30', 30,
-                                     cpe='cpe:/o:fedoraproject:fedora:30',
-                                     release_date=date(2019,  5,  7)))
+    fedora.add_release("Rawhide", '35', 35, suite='rawhide')
+    fedora.add_release("34", '34', 34, cpe='cpe:/o:fedoraproject:fedora:34', suite='branched',
+                       release_date=date(2021,  4, 20))
+    fedora.add_release("33", '33', 33, cpe='cpe:/o:fedoraproject:fedora:33',
+                       release_date=date(2020, 10, 27))
+    fedora.add_release("32", '32', 32, cpe='cpe:/o:fedoraproject:fedora:32',
+                       release_date=date(2020,  4, 28), eol_date=date(2021,  5, 18))
+    fedora.add_release("31", '31', 31, cpe='cpe:/o:fedoraproject:fedora:31',
+                       release_date=date(2019, 10, 29), eol_date=date(2020, 11, 24))
+    fedora.add_release("30", '30', 30, cpe='cpe:/o:fedoraproject:fedora:30',
+                       release_date=date(2019,  5,  7), eol_date=date(2020,  5, 26))
     __distribs.add(fedora)
 
-    centos = DistInfo("CentOS Linux", 'centos', id_like=['rhel', 'fedora'])
-    centos._releases.add(ReleaseInfo(centos, "8", '8', 8, cpe='cpe:/o:centos:centos:8',
-                                     release_date=date(2019, 9, 24), eol_date=date(2024, 5, 1)))
-    centos._releases.add(ReleaseInfo(centos, "7", '7', 7, cpe='cpe:/o:centos:centos:7',
-                                     release_date=date(2014, 7, 7), eol_date=date(2020, 8, 6)))
-    centos._releases.add(ReleaseInfo(centos, "6", '6', 6, cpe='cpe:/o:centos:centos:6',
-                                     release_date=date(2011, 7, 10), eol_date=date(2017, 5, 10)))
-    __distribs.add(centos)
+    redhat = DistInfo("Red Hat Enterprise Linux", 'rhel', id_like=['fedora'])
+    redhat.add_release("8.3 (Ootpa)", '8.3', 803, cpe='cpe:/o:redhat:enterprise_linux:8.3', 
+                       release_date=date(2020, 11,  3))
+    redhat.add_release("8.2 (Ootpa)", '8.2', 802, cpe='cpe:/o:redhat:enterprise_linux:8.2', 
+                       release_date=date(2020,  4, 28), eol_date=date(2022,  4, 30))
+    redhat.add_release("8.1 (Ootpa)", '8.1', 801, cpe='cpe:/o:redhat:enterprise_linux:8.1', 
+                       release_date=date(2019, 11,  5), eol_date=date(2021, 11, 30))
+    redhat.add_release("8.0 (Ootpa)", '8.0', 800, cpe='cpe:/o:redhat:enterprise_linux:8.0', 
+                       release_date=date(2019,  5,  7), eol_date=date(2019, 11,  5))
+    redhat.add_release("7.9 (Maipo)", '7.9', 709, cpe='cpe:/o:redhat:enterprise_linux:7.9', 
+                       release_date=date(2020,  9, 29), eol_date=date(2024,  6, 30))
+    redhat.add_release("7.8 (Maipo)", '7.8', 708, cpe='cpe:/o:redhat:enterprise_linux:7.8', 
+                       release_date=date(2020,  3, 31), eol_date=date(2020,  9, 29))
+    redhat.add_release("7.7 (Maipo)", '7.7', 707, cpe='cpe:/o:redhat:enterprise_linux:7.7', 
+                       release_date=date(2019,  8,  6), eol_date=date(2021,  8, 30))
+    redhat.add_release("7.6 (Maipo)", '7.6', 706, cpe='cpe:/o:redhat:enterprise_linux:7.6', 
+                       release_date=date(2018, 10, 30), eol_date=date(2021,  5, 31))
+    redhat.add_release("7.5 (Maipo)", '7.5', 705, cpe='cpe:/o:redhat:enterprise_linux:7.5', 
+                       release_date=date(2018,  4, 10), eol_date=date(2020,  4, 30))
+    redhat.add_release("7.4 (Maipo)", '7.4', 704, cpe='cpe:/o:redhat:enterprise_linux:7.4', 
+                       release_date=date(2017,  7, 31), eol_date=date(2019,  8, 31))
+    redhat.add_release("7.3 (Maipo)", '7.3', 703, cpe='cpe:/o:redhat:enterprise_linux:7.3', 
+                       release_date=date(2016, 11,  3), eol_date=date(2018, 11, 30))
+    redhat.add_release("7.2 (Maipo)", '7.2', 702, cpe='cpe:/o:redhat:enterprise_linux:7.2', 
+                       release_date=date(2015, 11, 19), eol_date=date(2017, 11, 30))
+    redhat.add_release("7.1 (Maipo)", '7.1', 701, cpe='cpe:/o:redhat:enterprise_linux:7.1', 
+                       release_date=date(2015,  3,  5), eol_date=date(2017,  3, 31))
+    redhat.add_release("7.0 (Maipo)", '7.0', 700, cpe='cpe:/o:redhat:enterprise_linux:7.0', 
+                       release_date=date(2014,  6,  9), eol_date=date(2015,  3,  5))
+    __distribs.add(redhat)
 
 
 __init_distribs()

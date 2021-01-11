@@ -1,27 +1,37 @@
 ARG DIST_ID=fedora
-ARG DIST_RELEASE=31
+ARG DIST_RELEASE=latest
 
 FROM ${DIST_ID}:${DIST_RELEASE}
+
+ARG DIST_ID=fedora
+ARG DIST_RELEASE=latest
 
 VOLUME /src
 VOLUME /localrepo
 
-RUN dnf upgrade -y \
- || yum upgrade -y \
- && dnf install -y --setopt=tsflags=nodocs --setopt=install_weak_deps=False --best \
+RUN DNF=yum \
+  ; WEAK_DEPS="" \
+  ; BUILDDEP="" \
+  ; case "${DIST_ID}" in \
+    "fedora" ) \
+      DNF=dnf \
+  ;   WEAK_DEPS="--setopt=install_weak_deps=False --best" \
+  ;   BUILDDEP="dnf-command(builddep) nosync" \
+  ;; \
+    *) \
+      DNF=yum \
+  ;   BUILDDEP="yum-utils" \
+  ;; \
+    esac \
+ && ${DNF} upgrade -y \
+ && ${DNF} install -y --setopt=tsflags=nodocs ${WEAK_DEPS} \
     rpm-build \
-    'dnf-command(builddep)' \
-    nosync \
- || yum install -y --setopt=tsflags=nodocs \
-    rpm-build \
-    yum-utils \
- && dnf upgrade -y \
- || yum upgrade -y \
- && dnf clean all -y --enablerepo='*' \
- || yum clean all -y --enablerepo='*' \
+    ${BUILDDEP} \
+ && ${DNF} upgrade -y \
+ && ${DNF} clean all -y --enablerepo='*' \
  && rm -f /*.log ${HOME}/*
 
-ENTRYPOINT ["/bin/bash", "/usr/local/bin/entrypoint"]
+ENTRYPOINT ["/bin/bash", "/entrypoint"]
 ENV LD_PRELOAD="/usr/lib64/nosync/nosync.so"
 
-COPY entrypoint /usr/local/bin/
+COPY entrypoint /
