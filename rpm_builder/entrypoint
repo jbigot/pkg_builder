@@ -2,13 +2,13 @@
 trap 'echo received signal, quitting...; exit 1' INT TERM
 set -xe
 
-test -e /usr/lib64/nosync/nosync.so && export LD_PRELOAD="/usr/lib64/nosync/nosync.so"
-
 bgrun() {
 "$@" &
 wait "$!"
 }
 
+if [ -d /localrepo/repodata ]
+then
 cat<<EOF > /tmp/localrepo.repo
 [localrepo]
 name=localrepo
@@ -18,13 +18,19 @@ gpgcheck=0
 enabled=1
 EOF
 dnf config-manager --add-repo /tmp/localrepo.repo || true
+fi
 
 bgrun dnf upgrade -y || bgrun yum upgrade -y
 
 bgrun dnf builddep -y --setopt=tsflags=nodocs --setopt=install_weak_deps=False --best /src/*.spec
 
+# re-read profile after installation to load any new env
+set +e
+. /etc/profile
+set -e
+
 mkdir -p "/tmp/BUILD" "/tmp/output" "/tmp/output/src"
-bgrun bash -lc 'rpmbuild \
+bgrun rpmbuild \
 	--define "_topdir    /tmp" \
 	--define "_builddir  %{_topdir}/BUILD" \
 	--define "_rpmdir    %{_topdir}/output" \
@@ -33,6 +39,6 @@ bgrun bash -lc 'rpmbuild \
 	--define "_srcrpmdir %{_topdir}/output/src" \
 	--define "_tmppath   tmp" \
 	--undefine=_disable_source_fetch \
-	-ba /src/*.spec'
+	-ba /src/*.spec
 chown -R $(stat -c '%u:%g' /src) /tmp/output
 find /tmp/output -type f -name '*.rpm' -execdir mv -t /src -- '{}' '+'

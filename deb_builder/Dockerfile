@@ -28,7 +28,7 @@ RUN echo "force-unsafe-io" > /etc/dpkg/dpkg.cfg.d/02apt-speedup \
     /usr/lib/gcc/x86_64-linux-gnu/*/cc1 \
     /usr/lib/gcc/x86_64-linux-gnu/*/cc1plus
 
-ENTRYPOINT ["/bin/bash", "/entrypoint"]
+ENTRYPOINT ["/bin/bash", "-l", "/entrypoint"]
 ENV DIST_CODENAME="${DIST_CODENAME}"
 ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libeatmydata.so
 

@@ -31,7 +31,7 @@ RUN DNF=yum \
  && ${DNF} clean all -y --enablerepo='*' \
  && rm -f /*.log ${HOME}/*
 
-ENTRYPOINT ["/bin/bash", "/entrypoint"]
+ENTRYPOINT ["/bin/bash", "-l", "/entrypoint"]
 ENV LD_PRELOAD="/usr/lib64/nosync/nosync.so"
 
 COPY entrypoint /

@@ -3,7 +3,7 @@ trap 'echo received signal, quitting...; exit 1' INT TERM
 set -xe
 
 bgrun() {
-eatmydata "$@" &
+"$@" &
 wait "$!"
 }
 
@@ -16,6 +16,11 @@ bgrun apt-get -y update
 bgrun apt-get -y dist-upgrade
 bgrun dpkg -R --unpack /deps
 bgrun apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install
+
+# re-read profile after installation to load any new env
+set +xe
+. /etc/profile
+set -xe
 
 cp -a /src /tmp/
 cd "$(find /tmp/src/ -mindepth 1 -maxdepth 1 -type d)"

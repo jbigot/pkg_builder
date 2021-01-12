@@ -645,6 +645,24 @@ def release_list(cfg: dict) -> Set[ReleaseInfo]:
             prev = cur
     return releases
 
+def release_filter(releases: Iterable[ReleaseInfo], dist_filter: Iterable[str]) -> Set[ReleaseInfo]:
+    result = set()
+    for one_filter in dist_filter:
+        for release in releases:
+            if (
+                release.distrib.name == one_filter
+                or one_filter == ( str(release.distrib.name) + ':' + str(release.id) )
+                or one_filter == ( str(release.distrib.name) + ':' + str(release.name) )
+                or one_filter == ( str(release.distrib.name) + ':' + str(release.suite) )
+                or one_filter == ( str(release.distrib.name) + ':' + str(release.codename) )
+                or str(release.distrib.id) == str(one_filter)
+                or one_filter == ( str(release.distrib.id) + ':' + str(release.id) )
+                or one_filter == ( str(release.distrib.id) + ':' + str(release.name) )
+                or one_filter == ( str(release.distrib.id) + ':' + str(release.suite) )
+                or one_filter == ( str(release.distrib.id) + ':' + str(release.codename) )
+                ):
+                result.add(release)
+    return result
 
 def build_packages(packages, parallelism: int = None):
     with ThreadPoolExecutor(max_workers=parallelism) as executor:
@@ -682,6 +700,8 @@ def main():
                         help='Wether to run in verbose mode')
     parser.add_argument('-i', '--interactive', action='store_true',
                         help='Wether to run in interactive mode')
+    parser.add_argument('-D', '--distributions', action='append', nargs='+',
+                        help='The distributions to build')
     parser.add_argument('-j', '--jobs', action='store', nargs='?', type=int, default=None,
                         help='Number of jobs to run in parallel')
     parser.add_argument('build_conf', action='store', metavar='build.conf', nargs='?',
@@ -708,10 +728,13 @@ def main():
             keyid = distrib_cfg.get('gpg', {}).get('id', None)
             uid = distrib_cfg.get('gpg', {}).get('uid', None)
             gpg = GpgInfo(keyfile, keyid, args.passphrase, uid)
-
-            dist_packages = set()
             
-            for dist_release in release_list({dist_id: distrib_cfg.get('versions', {})}):
+            releases = release_list({dist_id: distrib_cfg.get('versions', {})})
+            if args.distributions is not None and len(args.distributions) != 0:
+                releases = release_filter(releases, {e for el in args.distributions for e in el})
+            
+            dist_packages = set()
+            for dist_release in releases:
                 for name, pkg_cfg in cfg['packages'].items():
                     if not isinstance(pkg_cfg, dict):
                         pkg_cfg = {'value': pkg_cfg}
