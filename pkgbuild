@@ -22,7 +22,7 @@ from tempfile import mkdtemp, TemporaryDirectory
 from time import sleep, time
 from typing import Iterable, Set
 from urllib.error import URLError
-from urllib.parse import ParseResult, urljoin, urlparse, urlunparse
+from urllib.parse import parse_qsl, ParseResult, urljoin, urlparse, urlunparse
 from urllib.request import url2pathname, urlopen
 
 from debian.changelog import Changelog, format_date
@@ -494,7 +494,11 @@ class RpmPackageBuilder:
             all_urls = [ l for l in all_urls if re.match(r'^\s*source[0-9]*\s*:', l, re.IGNORECASE) is not None]
             all_urls = [ re.sub(r'^\s*source[0-9]*\s*:\s*', '', l, 1, re.IGNORECASE) for l in all_urls ]
             for orig_url in all_urls:
-                orig_file = Path(urlparse(orig_url).path).name
+                query = parse_qsl(urlparse(orig_url).query)
+                if len(query) > 0:
+                    orig_file =  Path(query[-1][1]).name
+                else:
+                    orig_file =  Path(urlparse(orig_url).path).name
                 self._downloader.download(orig_url, pkg_dir / orig_file )
 
             cheched_run(['docker', 'run', '--rm', '--shm-size=5g', '--mount', 'type=bind,source=' +
