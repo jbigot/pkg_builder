@@ -24,10 +24,27 @@ bgrun dnf upgrade -y || bgrun yum upgrade -y
 
 bgrun dnf builddep -y --setopt=tsflags=nodocs --setopt=install_weak_deps=False --best /src/*.spec
 
+# debug
+ls -l        /etc/profile.d/00-modulepath.sh && echo YEA || echo NAY >&2
+test -r      /etc/profile.d/00-modulepath.sh && echo YEA || echo NAY >&2
+/bin/test -r /etc/profile.d/00-modulepath.sh && echo YEA || echo NAY >&2
+ls -l        /etc/profile.d/modules.sh && echo YEA || echo NAY >&2
+test -r      /etc/profile.d/modules.sh && echo YEA || echo NAY >&2
+/bin/test -r /etc/profile.d/modules.sh && echo YEA || echo NAY >&2
+ls -l        /etc/alternatives/modules.sh && echo YEA || echo NAY >&2
+test -r      /etc/alternatives/modules.sh && echo YEA || echo NAY >&2
+/bin/test -r /etc/alternatives/modules.sh && echo YEA || echo NAY >&2
+ls -l        /usr/share/lmod/lmod/init/profile && echo YEA || echo NAY >&2
+test -r      /usr/share/lmod/lmod/init/profile && echo YEA || echo NAY >&2
+/bin/test -r /usr/share/lmod/lmod/init/profile && echo YEA || echo NAY >&2
+
 # re-read profile after installation to load any new env
 set +e
 . /etc/profile
 set -e
+
+# debug
+module || echo NOPE >&2
 
 mkdir -p "/tmp/BUILD" "/tmp/output" "/tmp/output/src"
 bgrun rpmbuild \
