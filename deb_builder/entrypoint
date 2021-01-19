@@ -1,6 +1,6 @@
 #!/bin/bash
 trap 'echo received signal, quitting...; exit 1' INT TERM
-set -xe
+set -e
 
 bgrun() {
 "$@" &
@@ -18,9 +18,9 @@ bgrun dpkg -R --unpack /deps
 bgrun apt-get -o Debug::pkgProblemResolver=yes -y --no-install-recommends --fix-broken install
 
 # re-read profile after installation to load any new env
-set +xe
+set +e
 . /etc/profile
-set -xe
+set -e
 
 cp -a /src /tmp/
 cd "$(find /tmp/src/ -mindepth 1 -maxdepth 1 -type d)"

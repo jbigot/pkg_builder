@@ -1,6 +1,6 @@
 #!/bin/bash
 trap 'echo received signal, quitting...; exit 1' INT TERM
-set -xe
+set -e
 
 bgrun() {
 "$@" &
