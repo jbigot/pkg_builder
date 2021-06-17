@@ -169,8 +169,10 @@ def __init_distribs():
     __distribs.add(centos)
 
     fedora = DistInfo("Fedora", 'fedora')
-    fedora.add_release("34", '34', 34, suite='rawhide',
-                       release_date=date(2021,  4, 20))
+    fedora.add_release("35", '35', 35, suite='rawhide',
+                       release_date=date(2021,  10, 26))
+    fedora.add_release("34", '34', 34, cpe='cpe:/o:fedoraproject:fedora:34',
+                       release_date=date(2021,  4, 27))
     fedora.add_release("33", '33', 33, cpe='cpe:/o:fedoraproject:fedora:33',
                        release_date=date(2020, 10, 27))
     fedora.add_release("32", '32', 32, cpe='cpe:/o:fedoraproject:fedora:32',
@@ -182,6 +184,8 @@ def __init_distribs():
     __distribs.add(fedora)
 
     redhat = DistInfo("Red Hat Enterprise Linux", 'rhel', id_like=['fedora'])
+    redhat.add_release("8.4 (Ootpa)", '8.4', 804, cpe='cpe:/o:redhat:enterprise_linux:8.4', 
+                       release_date=date(2021,  5, 18), eol_date=date(2023,  5, 30))
     redhat.add_release("8.3 (Ootpa)", '8.3', 803, cpe='cpe:/o:redhat:enterprise_linux:8.3', 
                        release_date=date(2020, 11,  3))
     redhat.add_release("8.2 (Ootpa)", '8.2', 802, cpe='cpe:/o:redhat:enterprise_linux:8.2', 
