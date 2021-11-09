@@ -169,14 +169,16 @@ def __init_distribs():
     __distribs.add(centos)
 
     fedora = DistInfo("Fedora", 'fedora')
-    fedora.add_release("35", '35', 35, suite='rawhide',
-                       release_date=date(2021,  10, 26))
+    fedora.add_release("36", '36', 36, suite='rawhide',
+                       release_date=date(2022,  4, 19))
+    fedora.add_release("35", '35', 35, cpe='cpe:/o:fedoraproject:fedora:35',
+                       release_date=date(2021, 11, 2))
     fedora.add_release("34", '34', 34, cpe='cpe:/o:fedoraproject:fedora:34',
                        release_date=date(2021,  4, 27))
     fedora.add_release("33", '33', 33, cpe='cpe:/o:fedoraproject:fedora:33',
-                       release_date=date(2020, 10, 27))
+                       release_date=date(2020, 10, 27), eol_date=date(2021, 11, 30))
     fedora.add_release("32", '32', 32, cpe='cpe:/o:fedoraproject:fedora:32',
-                       release_date=date(2020,  4, 28), eol_date=date(2021,  5, 18))
+                       release_date=date(2020,  4, 28), eol_date=date(2021,  5, 25))
     fedora.add_release("31", '31', 31, cpe='cpe:/o:fedoraproject:fedora:31',
                        release_date=date(2019, 10, 29), eol_date=date(2020, 11, 24))
     fedora.add_release("30", '30', 30, cpe='cpe:/o:fedoraproject:fedora:30',
