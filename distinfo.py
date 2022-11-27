@@ -194,35 +194,46 @@ def __init_distribs():
     __distribs.add(fedora)
 
     redhat = DistInfo("Red Hat Enterprise Linux", 'rhel', id_like=['fedora'])
-    redhat.add_release("8.4 (Ootpa)", '8.4', 804, cpe='cpe:/o:redhat:enterprise_linux:8.4', 
-                       release_date=date(2021,  5, 18), eol_date=date(2023,  5, 30))
-    redhat.add_release("8.3 (Ootpa)", '8.3', 803, cpe='cpe:/o:redhat:enterprise_linux:8.3', 
-                       release_date=date(2020, 11,  3))
-    redhat.add_release("8.2 (Ootpa)", '8.2', 802, cpe='cpe:/o:redhat:enterprise_linux:8.2', 
+    # from https://access.redhat.com/articles/3078
+    redhat.add_release("9.1 (Ootpa)", '9.1', 901, cpe='cpe:/o:redhat:enterprise_linux:9.1',
+                       release_date=date(2022, 11, 15), eol_date=date(2023,  5, 15))
+    redhat.add_release("9.0 (Ootpa)", '9.0', 900, cpe='cpe:/o:redhat:enterprise_linux:9.0',
+                       release_date=date(2022,  5, 17), eol_date=date(2023,  5, 30))
+    redhat.add_release("8.7 (Ootpa)", '8.7', 807, cpe='cpe:/o:redhat:enterprise_linux:8.7',
+                       release_date=date(2022, 11,  9), eol_date=date(2023,  5,  9))
+    redhat.add_release("8.6 (Ootpa)", '8.6', 806, cpe='cpe:/o:redhat:enterprise_linux:8.6',
+                       release_date=date(2022,  5, 10), eol_date=date(2024,  5, 31))
+    redhat.add_release("8.5 (Ootpa)", '8.5', 805, cpe='cpe:/o:redhat:enterprise_linux:8.5',
+                       release_date=date(2021, 11,  9), eol_date=date(2023,  5,  9))
+    redhat.add_release("8.4 (Ootpa)", '8.4', 804, cpe='cpe:/o:redhat:enterprise_linux:8.4',
+                       release_date=date(2021,  5, 18), eol_date=date(2023,  5, 31))
+    redhat.add_release("8.3 (Ootpa)", '8.3', 803, cpe='cpe:/o:redhat:enterprise_linux:8.3',
+                       release_date=date(2020, 11,  3), eol_date=date(2021,  5,  3))
+    redhat.add_release("8.2 (Ootpa)", '8.2', 802, cpe='cpe:/o:redhat:enterprise_linux:8.2',
                        release_date=date(2020,  4, 28), eol_date=date(2022,  4, 30))
-    redhat.add_release("8.1 (Ootpa)", '8.1', 801, cpe='cpe:/o:redhat:enterprise_linux:8.1', 
+    redhat.add_release("8.1 (Ootpa)", '8.1', 801, cpe='cpe:/o:redhat:enterprise_linux:8.1',
                        release_date=date(2019, 11,  5), eol_date=date(2021, 11, 30))
-    redhat.add_release("8.0 (Ootpa)", '8.0', 800, cpe='cpe:/o:redhat:enterprise_linux:8.0', 
+    redhat.add_release("8.0 (Ootpa)", '8.0', 800, cpe='cpe:/o:redhat:enterprise_linux:8.0',
                        release_date=date(2019,  5,  7), eol_date=date(2019, 11,  5))
-    redhat.add_release("7.9 (Maipo)", '7.9', 709, cpe='cpe:/o:redhat:enterprise_linux:7.9', 
+    redhat.add_release("7.9 (Maipo)", '7.9', 709, cpe='cpe:/o:redhat:enterprise_linux:7.9',
                        release_date=date(2020,  9, 29), eol_date=date(2024,  6, 30))
-    redhat.add_release("7.8 (Maipo)", '7.8', 708, cpe='cpe:/o:redhat:enterprise_linux:7.8', 
+    redhat.add_release("7.8 (Maipo)", '7.8', 708, cpe='cpe:/o:redhat:enterprise_linux:7.8',
                        release_date=date(2020,  3, 31), eol_date=date(2020,  9, 29))
-    redhat.add_release("7.7 (Maipo)", '7.7', 707, cpe='cpe:/o:redhat:enterprise_linux:7.7', 
+    redhat.add_release("7.7 (Maipo)", '7.7', 707, cpe='cpe:/o:redhat:enterprise_linux:7.7',
                        release_date=date(2019,  8,  6), eol_date=date(2021,  8, 30))
-    redhat.add_release("7.6 (Maipo)", '7.6', 706, cpe='cpe:/o:redhat:enterprise_linux:7.6', 
+    redhat.add_release("7.6 (Maipo)", '7.6', 706, cpe='cpe:/o:redhat:enterprise_linux:7.6',
                        release_date=date(2018, 10, 30), eol_date=date(2021,  5, 31))
-    redhat.add_release("7.5 (Maipo)", '7.5', 705, cpe='cpe:/o:redhat:enterprise_linux:7.5', 
+    redhat.add_release("7.5 (Maipo)", '7.5', 705, cpe='cpe:/o:redhat:enterprise_linux:7.5',
                        release_date=date(2018,  4, 10), eol_date=date(2020,  4, 30))
-    redhat.add_release("7.4 (Maipo)", '7.4', 704, cpe='cpe:/o:redhat:enterprise_linux:7.4', 
+    redhat.add_release("7.4 (Maipo)", '7.4', 704, cpe='cpe:/o:redhat:enterprise_linux:7.4',
                        release_date=date(2017,  7, 31), eol_date=date(2019,  8, 31))
-    redhat.add_release("7.3 (Maipo)", '7.3', 703, cpe='cpe:/o:redhat:enterprise_linux:7.3', 
+    redhat.add_release("7.3 (Maipo)", '7.3', 703, cpe='cpe:/o:redhat:enterprise_linux:7.3',
                        release_date=date(2016, 11,  3), eol_date=date(2018, 11, 30))
-    redhat.add_release("7.2 (Maipo)", '7.2', 702, cpe='cpe:/o:redhat:enterprise_linux:7.2', 
+    redhat.add_release("7.2 (Maipo)", '7.2', 702, cpe='cpe:/o:redhat:enterprise_linux:7.2',
                        release_date=date(2015, 11, 19), eol_date=date(2017, 11, 30))
-    redhat.add_release("7.1 (Maipo)", '7.1', 701, cpe='cpe:/o:redhat:enterprise_linux:7.1', 
+    redhat.add_release("7.1 (Maipo)", '7.1', 701, cpe='cpe:/o:redhat:enterprise_linux:7.1',
                        release_date=date(2015,  3,  5), eol_date=date(2017,  3, 31))
-    redhat.add_release("7.0 (Maipo)", '7.0', 700, cpe='cpe:/o:redhat:enterprise_linux:7.0', 
+    redhat.add_release("7.0 (Maipo)", '7.0', 700, cpe='cpe:/o:redhat:enterprise_linux:7.0',
                        release_date=date(2014,  6,  9), eol_date=date(2015,  3,  5))
     __distribs.add(redhat)
 
