@@ -1,5 +1,6 @@
 #!/bin/bash
-trap 'echo received signal, quitting...; exit 1' INT TERM
+trap 'echo received signal, quitting...; exit 1' QUIT ABRT KILL SEGV INT TERM STOP
+
 set -e
 
 bgrun() {

@@ -169,12 +169,20 @@ def __init_distribs():
     __distribs.add(centos)
 
     fedora = DistInfo("Fedora", 'fedora')
-    fedora.add_release("36", '36', 36, suite='rawhide',
-                       release_date=date(2022,  4, 19))
+    # from https://docs.fedoraproject.org/en-US/releases/eol/
+    # and https://pagure.io/fedora-pgm/schedule/tree/main
+    fedora.add_release("39", '39', 39, suite='rawhide',
+                       release_date=date(2023, 10, 17))
+    fedora.add_release("38", '38', 38, suite='branched',
+                       release_date=date(2023,  4, 18))
+    fedora.add_release("37", '37', 37, cpe='cpe:/o:fedoraproject:fedora:37',
+                       release_date=date(2022, 11, 15), eol_date=date(2023, 11, 14))
+    fedora.add_release("36", '36', 36, cpe='cpe:/o:fedoraproject:fedora:36',
+                       release_date=date(2022,  5, 10), eol_date=date(2023,  5, 16))
     fedora.add_release("35", '35', 35, cpe='cpe:/o:fedoraproject:fedora:35',
-                       release_date=date(2021, 11, 2))
+                       release_date=date(2021, 11,  2), eol_date=date(2022, 12, 13))
     fedora.add_release("34", '34', 34, cpe='cpe:/o:fedoraproject:fedora:34',
-                       release_date=date(2021,  4, 27))
+                       release_date=date(2021,  4, 27), eol_date=date(2022,  6,  7))
     fedora.add_release("33", '33', 33, cpe='cpe:/o:fedoraproject:fedora:33',
                        release_date=date(2020, 10, 27), eol_date=date(2021, 11, 30))
     fedora.add_release("32", '32', 32, cpe='cpe:/o:fedoraproject:fedora:32',
