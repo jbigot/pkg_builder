@@ -11,14 +11,16 @@ def run_docker(*args):
     print('$ docker', *args, '\n')
     return run(['docker'] + list(args)).returncode
 
+
 def main():
     parser = argparse.ArgumentParser(description='Builds the required docker images.',
-                                        allow_abbrev=False)
+                                     allow_abbrev=False)
     parser.add_argument('-p', '--publish', action='store_true',
                         help='Publish the images')
     args = parser.parse_args()
 
-    res = run_docker('build', '--force-rm', '-t', 'pdidevel/rpm_tools', 'rpm_tools')
+    res = run_docker('build', '--force-rm', '-t',
+                     'pdidevel/rpm_tools', 'rpm_tools')
     if res == 0 and args.publish:
         run(['docker', 'push', 'pdidevel/rpm_tools']).returncode
 
@@ -37,17 +39,18 @@ def main():
             res = run_docker('build', '--force-rm', '-t', docker_image,
                              '--build-arg', 'DIST_ID='+dist_id,
                              '--build-arg', 'DIST_RELEASE='+docker_release,
-                             '--build-arg', 'DIST_CODENAME='+str(release.codename),
+                             '--build-arg', 'DIST_CODENAME=' +
+                             str(release.codename),
                              builder)
             if res == 0:
                 if args.publish:
                     run_docker('push', docker_image)
                 if release.codename is not None and release_id != release.codename:
                     res = run_docker('tag', docker_image,
-                                     'pdidevel/'+str(distrib.id)+'_builder:'+str(release.codename))
+                                     'pdidevel/'+distrib.id+'_builder:'+str(release.codename))
                     if res == 0 and args.publish:
-                        run_docker('push', 
-                                   'pdidevel/'+str(distrib.id)+'_builder:'+str(release.codename))
+                        run_docker('push',
+                                   'pdidevel/'+distrib.id+'_builder:'+str(release.codename))
                 if release.suite is not None:
                     res = run_docker('tag', docker_image,
                                      'pdidevel/'+distrib.id+'_builder:'+release.suite)
@@ -61,9 +64,11 @@ def main():
                     if res == 0 and args.publish:
                         run_docker('push',
                                    'pdidevel/'+distrib.id+'_builder:latest')
-                print("\n\n   \033[32m===> DONE buidling "+docker_image+"\033[39m")
+                print("\n\n   \033[32m===> DONE buidling " +
+                      docker_image+"\033[39m")
             else:
-                print("\n\n   \033[33m===> SKIPPED buidling "+docker_image+"\033[39m")
+                print("\n\n   \033[33m===> SKIPPED buidling " +
+                      docker_image+"\033[39m")
 
 
 if __name__ == '__main__':

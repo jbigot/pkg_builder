@@ -28,7 +28,8 @@ class Downloader:
                     print("Downloading " + url + " : in cache!")
         else:
             self._downloaded[url] = None
-            temp_path = self._download_dir / sha256(bytes(url, 'UTF8')).hexdigest()
+            temp_path = self._download_dir / \
+                sha256(bytes(url, 'UTF8')).hexdigest()
             if self._verbose:
                 print("Downloading " + url + " ...")
             for timeout in [1, 2, 3, 5, 7]:
@@ -38,10 +39,12 @@ class Downloader:
                     break
                 except URLError as err:
                     if timeout == 7:
-                        raise URLError('while downloading ' + url + ': ' + str(err))
+                        raise URLError('while downloading ' +
+                                       url + ': ' + str(err))
                 except socket.timeout as err:
                     if timeout == 7:
-                        raise URLError('while downloading ' + url + ': ' + str(err))
+                        raise URLError('while downloading ' +
+                                       url + ': ' + str(err))
             if self._verbose:
                 print("Downloading " + url + " done!")
             self._downloaded[url] = temp_path
