@@ -173,8 +173,8 @@ def __init_distribs():
     # and https://pagure.io/fedora-pgm/schedule/tree/main
     fedora.add_release("39", '39', 39, suite='rawhide',
                        release_date=date(2023, 10, 17))
-    fedora.add_release("38", '38', 38, suite='branched',
-                       release_date=date(2023,  4, 18))
+    fedora.add_release("38", '38', 38, cpe='cpe:/o:fedoraproject:fedora:38',
+                       release_date=date(2023,  4, 18), eol_date=date(2024,  5, 14))
     fedora.add_release("37", '37', 37, cpe='cpe:/o:fedoraproject:fedora:37',
                        release_date=date(2022, 11, 15), eol_date=date(2023, 11, 14))
     fedora.add_release("36", '36', 36, cpe='cpe:/o:fedoraproject:fedora:36',
