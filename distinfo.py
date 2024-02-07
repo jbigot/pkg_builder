@@ -171,12 +171,14 @@ def __init_distribs():
     fedora = DistInfo("Fedora", 'fedora')
     # from https://docs.fedoraproject.org/en-US/releases/eol/
     # and https://pagure.io/fedora-pgm/schedule/tree/main
-    fedora.add_release("39", '39', 39, suite='rawhide',
-                       release_date=date(2023, 10, 17))
+    fedora.add_release("40", '40', 40, suite='rawhide',
+                       release_date=date(2024,  4, 23), eol_date=date(2025,  5, 13))
+    fedora.add_release("39", '39', 39, cpe='cpe:/o:fedoraproject:fedora:39',
+                       release_date=date(2023, 11,  7), eol_date=date(2024, 11, 12))
     fedora.add_release("38", '38', 38, cpe='cpe:/o:fedoraproject:fedora:38',
-                       release_date=date(2023,  4, 18), eol_date=date(2024,  5, 14))
+                       release_date=date(2023,  4, 25), eol_date=date(2024,  5, 14))
     fedora.add_release("37", '37', 37, cpe='cpe:/o:fedoraproject:fedora:37',
-                       release_date=date(2022, 11, 15), eol_date=date(2023, 11, 14))
+                       release_date=date(2022, 11, 15), eol_date=date(2023, 12,  5))
     fedora.add_release("36", '36', 36, cpe='cpe:/o:fedoraproject:fedora:36',
                        release_date=date(2022,  5, 10), eol_date=date(2023,  5, 16))
     fedora.add_release("35", '35', 35, cpe='cpe:/o:fedoraproject:fedora:35',
@@ -195,24 +197,32 @@ def __init_distribs():
 
     redhat = DistInfo("Red Hat Enterprise Linux", 'rhel', id_like=['fedora'])
     # from https://access.redhat.com/articles/3078
+    redhat.add_release("9.3 (Ootpa)", '9.3', 903, cpe='cpe:/o:redhat:enterprise_linux:9.3',
+                       release_date=date(2023, 11,  7), eol_date=date(2024,  5,  7))
+    redhat.add_release("9.2 (Ootpa)", '9.2', 902, cpe='cpe:/o:redhat:enterprise_linux:9.2',
+                       release_date=date(2023,  5, 10), eol_date=date(2025,  5, 10))
     redhat.add_release("9.1 (Ootpa)", '9.1', 901, cpe='cpe:/o:redhat:enterprise_linux:9.1',
-                       release_date=date(2022, 11, 15), eol_date=date(2023,  5, 15))
+                       release_date=date(2022, 11, 15), eol_date=date(2023,  5, 10))
     redhat.add_release("9.0 (Ootpa)", '9.0', 900, cpe='cpe:/o:redhat:enterprise_linux:9.0',
-                       release_date=date(2022,  5, 17), eol_date=date(2023,  5, 30))
+                       release_date=date(2022,  5, 17), eol_date=date(2024,  5, 17))
+    redhat.add_release("8.9 (Ootpa)", '8.9', 809, cpe='cpe:/o:redhat:enterprise_linux:8.9',
+                       release_date=date(2023, 11, 14), eol_date=date(2024,  5,  14))
+    redhat.add_release("8.8 (Ootpa)", '8.8', 808, cpe='cpe:/o:redhat:enterprise_linux:8.8',
+                       release_date=date(2023,  5, 16), eol_date=date(2025,  5, 16))
     redhat.add_release("8.7 (Ootpa)", '8.7', 807, cpe='cpe:/o:redhat:enterprise_linux:8.7',
-                       release_date=date(2022, 11,  9), eol_date=date(2023,  5,  9))
+                       release_date=date(2022, 11,  9), eol_date=date(2023,  5, 16))
     redhat.add_release("8.6 (Ootpa)", '8.6', 806, cpe='cpe:/o:redhat:enterprise_linux:8.6',
-                       release_date=date(2022,  5, 10), eol_date=date(2024,  5, 31))
+                       release_date=date(2022,  5, 10), eol_date=date(2024,  5, 10))
     redhat.add_release("8.5 (Ootpa)", '8.5', 805, cpe='cpe:/o:redhat:enterprise_linux:8.5',
-                       release_date=date(2021, 11,  9), eol_date=date(2023,  5,  9))
+                       release_date=date(2021, 11,  9), eol_date=date(2022,  5, 10))
     redhat.add_release("8.4 (Ootpa)", '8.4', 804, cpe='cpe:/o:redhat:enterprise_linux:8.4',
-                       release_date=date(2021,  5, 18), eol_date=date(2023,  5, 31))
+                       release_date=date(2021,  5, 18), eol_date=date(2023,  5, 18))
     redhat.add_release("8.3 (Ootpa)", '8.3', 803, cpe='cpe:/o:redhat:enterprise_linux:8.3',
-                       release_date=date(2020, 11,  3), eol_date=date(2021,  5,  3))
+                       release_date=date(2020, 11,  3), eol_date=date(2021,  5,  18))
     redhat.add_release("8.2 (Ootpa)", '8.2', 802, cpe='cpe:/o:redhat:enterprise_linux:8.2',
-                       release_date=date(2020,  4, 28), eol_date=date(2022,  4, 30))
+                       release_date=date(2020,  4, 28), eol_date=date(2022,  4, 28))
     redhat.add_release("8.1 (Ootpa)", '8.1', 801, cpe='cpe:/o:redhat:enterprise_linux:8.1',
-                       release_date=date(2019, 11,  5), eol_date=date(2021, 11, 30))
+                       release_date=date(2019, 11,  5), eol_date=date(2021, 11,  5))
     redhat.add_release("8.0 (Ootpa)", '8.0', 800, cpe='cpe:/o:redhat:enterprise_linux:8.0',
                        release_date=date(2019,  5,  7), eol_date=date(2019, 11,  5))
     redhat.add_release("7.9 (Maipo)", '7.9', 709, cpe='cpe:/o:redhat:enterprise_linux:7.9',
