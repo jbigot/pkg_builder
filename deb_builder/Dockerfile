@@ -23,10 +23,9 @@ RUN echo "force-unsafe-io" > /etc/dpkg/dpkg.cfg.d/02apt-speedup \
  && apt-get dist-upgrade -y \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/* \
- && strip -s \
-    /usr/lib/gcc/x86_64-linux-gnu/*/lto1 \
-    /usr/lib/gcc/x86_64-linux-gnu/*/cc1 \
-    /usr/lib/gcc/x86_64-linux-gnu/*/cc1plus
+ && for N in /usr/lib/gcc/x86_64-linux-gnu/*/* \
+    ; do ( strip -s "$N" || true ) \
+    ; done
 
 ENTRYPOINT ["/bin/bash", "-l", "/entrypoint"]
 ENV DIST_CODENAME="${DIST_CODENAME}"
