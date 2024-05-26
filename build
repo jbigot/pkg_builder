@@ -5,24 +5,28 @@ from subprocess import run
 
 from distinfo import ReleaseInfo, distributions
 
+REPO = 'ghcr.io/jbigot/pkg_builder/'
+
 
 def run_docker(*args):
-    print("\n\n   \033[34m===> docker "+args[0]+" "+args[-1]+" <===\033[39m")
+    print("\n\n   \033[34m===> docker " +
+          args[0] + " " + args[-1] + " <===\033[39m")
     print('$ docker', *args, '\n')
     return run(['docker'] + list(args)).returncode
 
 
 def main():
-    parser = argparse.ArgumentParser(description='Builds the required docker images.',
-                                     allow_abbrev=False)
+    parser = argparse.ArgumentParser(
+        description='Builds the required docker images.',
+        allow_abbrev=False)
     parser.add_argument('-p', '--publish', action='store_true',
                         help='Publish the images')
     args = parser.parse_args()
 
     res = run_docker('build', '--force-rm', '-t',
-                     'pdidevel/rpm_tools', 'rpm_tools')
+                     REPO + 'rpm_tools', 'rpm_tools')
     if res == 0 and args.publish:
-        run(['docker', 'push', 'pdidevel/rpm_tools']).returncode
+        run(['docker', 'push', REPO + 'rpm_tools']).returncode
 
     for distrib in distributions():
         for release in distrib.releases(eoled=False):
@@ -32,43 +36,49 @@ def main():
             if 'debian' in distrib.id_like:
                 release_id = release.codename
                 builder = 'deb_builder'
-            docker_image = 'pdidevel/'+distrib.id+'_builder:'+release_id
+            docker_image = REPO + '' + distrib.id + '_builder:' + release_id
             docker_release = release_id
             if 'debian' == distrib.id and release.codename != 'experimental':
-                docker_release = docker_release+'-slim'
+                docker_release = docker_release + '-slim'
             res = run_docker('build', '--force-rm', '-t', docker_image,
-                             '--build-arg', 'DIST_ID='+dist_id,
-                             '--build-arg', 'DIST_RELEASE='+docker_release,
+                             '--build-arg', 'DIST_ID=' + dist_id,
+                             '--build-arg', 'DIST_RELEASE=' + docker_release,
                              '--build-arg', 'DIST_CODENAME=' +
                              str(release.codename),
                              builder)
             if res == 0:
                 if args.publish:
                     run_docker('push', docker_image)
-                if release.codename is not None and release_id != release.codename:
+                if (release.codename is not None
+                        and release_id != release.codename):
                     res = run_docker('tag', docker_image,
-                                     'pdidevel/'+distrib.id+'_builder:'+str(release.codename))
+                                     REPO + '' + distrib.id + '_builder:'
+                                     + str(release.codename))
                     if res == 0 and args.publish:
                         run_docker('push',
-                                   'pdidevel/'+distrib.id+'_builder:'+str(release.codename))
+                                   REPO + '' + distrib.id + '_builder:'
+                                   + str(release.codename))
                 if release.suite is not None:
                     res = run_docker('tag', docker_image,
-                                     'pdidevel/'+distrib.id+'_builder:'+release.suite)
+                                     REPO + '' + distrib.id + '_builder:'
+                                     + release.suite)
                     if res == 0 and args.publish:
                         run_docker('push',
-                                   'pdidevel/'+distrib.id+'_builder:'+release.suite)
+                                   REPO + '' + distrib.id + '_builder:'
+                                   + release.suite)
                 if (release.supported() and
-                        all([r <= release for r in distrib.releases(supported=True)])):
+                        all([r <= release
+                             for r in distrib.releases(supported=True)])):
                     res = run_docker('tag', docker_image,
-                                     'pdidevel/'+distrib.id+'_builder:latest')
+                                     REPO + distrib.id + '_builder:latest')
                     if res == 0 and args.publish:
                         run_docker('push',
-                                   'pdidevel/'+distrib.id+'_builder:latest')
+                                   REPO + distrib.id + '_builder:latest')
                 print("\n\n   \033[32m===> DONE buidling " +
-                      docker_image+"\033[39m")
+                      docker_image + "\033[39m")
             else:
                 print("\n\n   \033[33m===> SKIPPED buidling " +
-                      docker_image+"\033[39m")
+                      docker_image + "\033[39m")
 
 
 if __name__ == '__main__':

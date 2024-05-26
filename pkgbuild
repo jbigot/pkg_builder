@@ -33,6 +33,7 @@ from downloader import Downloader
 from distinfo import ReleaseInfo, distributions
 
 VERBOSE = None
+REPO = 'ghcr.io/jbigot/pkg_builder/'
 
 
 def urlnormalize(url):
@@ -64,13 +65,14 @@ class GpgInfo:
         self._gpg_bin.parent.mkdir()
         with self._gpg_bin.open('w') as gpg_bin_raw:
             print('#!/bin/sh', file=gpg_bin_raw)
-            print('exec gpg2 --batch --pinentry-mode loopback --homedir ' + quote(self.home())
-                  + ' --passphrase ' + quote(self.passphrase('')) + ' "$@"', file=gpg_bin_raw)
+            print('exec gpg2 --batch --pinentry-mode loopback --homedir '
+                  + quote(self.home()) + ' --passphrase '
+                  + quote(self.passphrase('')) + ' "$@"', file=gpg_bin_raw)
         self._gpg_bin.chmod(0o700)
 
-        data = cheched_run(['gpg2', '--batch', '--homedir', self.home(), '--with-colons',
-                            '--with-fingerprint', '--fixed-list-mode'] +
-                           self.passphrase(
+        data = cheched_run(['gpg2', '--batch', '--homedir', self.home(),
+                            '--with-colons', '--with-fingerprint',
+                            '--fixed-list-mode'] + self.passphrase(
                                '', ['--passphrase']) + ['--list-secret-keys'],
                            cwd=self._home_dir, return_stdout=True)
         in_key = False
@@ -78,10 +80,11 @@ class GpgInfo:
             res = line.split(':')
             if res[0] == 'sec':
                 in_key = False
-                if self._keyid is None or res[4].upper()[-8:] == self._keyid[-8:]:
+                if self._keyid is None or res[4].upper(
+                )[-8:] == self._keyid[-8:]:
                     in_key = True
-            elif (res[0] == 'ssb' or res[0] == 'pub' or res[0] == 'crt' or res[0] == 'crs'
-                  or res[0] == 'sub'):
+            elif (res[0] == 'ssb' or res[0] == 'pub' or res[0] == 'crt'
+                  or res[0] == 'crs' or res[0] == 'sub'):
                 in_key = False
             elif res[0] == 'fpr' and in_key:
                 self._keyid = res[9].upper()
@@ -166,7 +169,8 @@ def cheched_run(cmd, cwd=None, return_stdout=False):
             err = out
             out = PIPE
         cancellation_point()
-        with Popen(cmd, cwd=cwd, stdout=out, stderr=err, encoding='UTF8') as process:
+        with Popen(cmd, cwd=cwd, stdout=out, stderr=err,
+                   encoding='UTF8') as process:
             try:
                 RUNNING_PROCESSES.add(process)
                 out, err = process.communicate()
@@ -236,7 +240,8 @@ class DebPackageBuilder:
         return self._finished
 
     def __dep_packages(self):
-        return {e for el in self._depends for e in el.__dep_packages()} | set([self])
+        return {e for el in self._depends for e in el.__dep_packages()} | set([
+            self])
 
     def build(self, wk_dir):
         cancellation_point()
@@ -326,7 +331,7 @@ class DebPackageBuilder:
                          '--mount', 'type=bind,source=' +
                          str(localrepo) + ',target=/localrepo',
                          '--tmpfs', '/tmp:exec',
-                         'pdidevel/' + self.dist_release.distrib.id +
+                         REPO + '' + self.dist_release.distrib.id +
                          '_builder:' + self.dist_release.codename,
                          '-j' + str(self._parallelism), '-sa',
                          '-P' + self.dist_release.distrib.id +
@@ -490,7 +495,8 @@ class RpmPackageBuilder:
         return self._finished
 
     def incomings(self):
-        return {e for el in self._depends for e in el.incomings()} | set([self])
+        return {e for el in self._depends for e in el.incomings()} | set([
+            self])
 
     def build(self, wk_dir):
         cancellation_point()
@@ -536,7 +542,7 @@ class RpmPackageBuilder:
                          str(pkg_dir) +
                          ',target=/src', '--mount', 'type=bind,source=' +
                          str(localrepo / self.dist_release.id) +
-                         ',target=/localrepo', '--tmpfs', '/tmp:exec', 'pdidevel/' +
+                         ',target=/localrepo', '--tmpfs', '/tmp:exec', REPO + '' +
                          self.dist_release.distrib.id +
                          '_builder:' +
                          self.dist_release.id])
@@ -621,7 +627,7 @@ class RpmRepoBuilder:
                  str(getegid()),
                  '--mount', 'type=bind,source=' +
                  str(release_dir) + ',target=/data',
-                 'pdidevel/rpm_tools', '.'])
+                 REPO + 'rpm_tools', '.'])
             (release_dir / 'repodata' / 'repomd.xml.asc').unlink(missing_ok=True)
             cheched_run([self._gpg.bin(), '-b', '-a',
                          'repodata/repomd.xml'], cwd=release_dir)
@@ -656,8 +662,10 @@ class RpmRepoBuilder:
 
 
 def order_packages(pkglst):
-    # maps (b, r) => s when the binary package b is generated by the source package s on release r
-    providers = {(bpkg, pkg.dist_release)                 : pkg for pkg in pkglst for bpkg in pkg.bin_provides}
+    # maps (b, r) => s when the binary package b is generated by the source
+    # package s on release r
+    providers = {(bpkg, pkg.dist_release)
+                  : pkg for pkg in pkglst for bpkg in pkg.bin_provides}
     for pkg in pkglst:
         pkg._depends = {providers[(b, pkg.dist_release)] for b in pkg.bin_depends if (
             b, pkg.dist_release) in providers}
@@ -689,7 +697,8 @@ def release_list(cfg: dict) -> Set[ReleaseInfo]:
     return releases
 
 
-def release_filter(releases: Iterable[ReleaseInfo], dist_filter: Iterable[str]) -> Set[ReleaseInfo]:
+def release_filter(releases: Iterable[ReleaseInfo],
+                   dist_filter: Iterable[str]) -> Set[ReleaseInfo]:
     result = set()
     for one_filter in dist_filter:
         for release in releases:
@@ -719,7 +728,8 @@ def build_packages(packages, parallelism: int = None):
             in_progress = set()
             waiting = set(packages)
             while (len(waiting) + len(in_progress)) > 0:
-                for pkg_cfg in {pkg_cfg for pkg_cfg in waiting if pkg_cfg.ready()}:
+                for pkg_cfg in {
+                        pkg_cfg for pkg_cfg in waiting if pkg_cfg.ready()}:
                     waiting.remove(pkg_cfg)
                     in_progress.add(executor.submit(pkg_cfg.build, tmp_dir))
                 if len(in_progress) == 0:
@@ -786,7 +796,8 @@ def main():
                 for name, pkg_cfg in cfg['packages'].items():
                     if not isinstance(pkg_cfg, dict):
                         pkg_cfg = {'value': pkg_cfg}
-                    if dist_release in release_list(pkg_cfg.get('disable', {})):
+                    if dist_release in release_list(
+                            pkg_cfg.get('disable', {})):
                         continue
                     if 'debian' in dist_release.distrib.id_like:
                         dist_packages.add(
