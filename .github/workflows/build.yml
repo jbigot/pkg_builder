@@ -17,6 +17,7 @@ jobs:
       with: { python-version: 3.8 }
     - name: Build docker images
       run: |
+        echo ${{ secrets.GITHUB_TOKEN }} | docker login ghcr.io -u ${{ github.actor }} --password-stdin
         ./build
     - name: Publish docker images
       if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
