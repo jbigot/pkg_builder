@@ -21,8 +21,5 @@ jobs:
         ./build
     - name: Publish docker images
       if: ${{ github.event_name == 'push' || github.event_name == 'schedule' }}
-      env:
-        DOCKER_TOKEN: ${{ secrets.DockerToken }}
       run: |
-        docker login -u jbigot -p "${DOCKER_TOKEN}"
         ./build --publish
