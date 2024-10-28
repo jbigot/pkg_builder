@@ -17,7 +17,9 @@ baseurl=file:///localrepo/
 gpgcheck=0
 enabled=1
 EOF
-dnf config-manager --add-repo /tmp/localrepo.repo || true
+dnf config-manager --add-repo /tmp/localrepo.repo \
+|| dnf config-manager addrepo --from-repofile=/tmp/localrepo.repo \
+|| true
 fi
 
 bgrun dnf upgrade -y || bgrun yum upgrade -y

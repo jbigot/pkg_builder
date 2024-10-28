@@ -171,12 +171,16 @@ def __init_distribs():
     fedora = DistInfo("Fedora", 'fedora')
     # from https://docs.fedoraproject.org/en-US/releases/eol/
     # and https://pagure.io/fedora-pgm/schedule/tree/main
+    # -> "Current Final Target date" / "Fedora Linux ${version} end of life"
+    # and https://en.wikipedia.org/wiki/Fedora_Linux_release_history
+    # fedora.add_release("43", '43', 43, suite='rawhide',
+    #                    release_date=date(2025, 11, 17), eol_date=date(2026, 12,  8))
     fedora.add_release("42", '42', 42, suite='rawhide',
                        release_date=date(2025,  4, 15), eol_date=date(2026,  5, 20))
     fedora.add_release("41", '41', 41, cpe='cpe:/o:fedoraproject:fedora:41',
                        release_date=date(2024, 10, 22), eol_date=date(2025, 11, 26))
     fedora.add_release("40", '40', 40, cpe='cpe:/o:fedoraproject:fedora:40',
-                       release_date=date(2024,  4, 23), eol_date=date(2025,  4, 15))
+                       release_date=date(2024,  4, 23), eol_date=date(2025,  5, 13))
     fedora.add_release("39", '39', 39, cpe='cpe:/o:fedoraproject:fedora:39',
                        release_date=date(2023, 11,  7), eol_date=date(2024, 11, 12))
     fedora.add_release("38", '38', 38, cpe='cpe:/o:fedoraproject:fedora:38',
