@@ -409,6 +409,8 @@ class DebRepoBuilder:
 
             repos = set()
             for pkg in pkgs:
+                if pkg.outdir is None or not pkg.outdir.is_dir():
+                    continue
                 if pkg.dist_release not in repos:
                     repos.add(pkg.dist_release)
                     aptly('repo', 'create', '-distribution=' +
@@ -422,6 +424,7 @@ class DebRepoBuilder:
                     aptly('repo', 'include', self._gpg.ring('-keyring='), '-no-remove-files',
                           '-repo=' + pkg.dist_release.uid() + ':' + pkg.dist_release.suite,
                           str(pkg.outdir))
+            repos = sorted(repos, key=str)
             for dist_release in repos:
                 distribs.add(str(dist_release.distrib))
                 if self._readme_tpl is not None:
@@ -617,6 +620,7 @@ class RpmRepoBuilder:
 
         install = ""
         distribs = set()
+        releases_set = sorted(releases_set, key=str)
         for dist_release in releases_set:
             release_dir = self._output_dir / dist_release.id
 
