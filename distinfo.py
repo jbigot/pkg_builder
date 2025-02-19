@@ -25,7 +25,8 @@ class ReleaseInfo:
         self.eol_date = eol_date
 
     def uid(self):
-        return self.distrib.uid()+'-'+self.id+('' if self.codename is None else '-'+self.codename)
+        return self.distrib.uid() + '-' + self.id + \
+            ('' if self.codename is None else '-' + self.codename)
 
     def released(self):
         return self.release_date <= date.today()
@@ -50,14 +51,14 @@ class ReleaseInfo:
         return hash(self.uid())
 
     def __str__(self):
-        return str(self.distrib)+" "+self.name
+        return str(self.distrib) + " " + self.name
 
 
 class DistInfo:
     def __init__(self, name: str, id: str, id_like=list()):
         self.name = name
         self.id = id
-        self.id_like = list([id]+list(id_like))
+        self.id_like = list([id] + list(id_like))
         self._releases = set()
 
     def uid(self):
@@ -79,7 +80,8 @@ class DistInfo:
                 return False
             if suite is not None and rel.suite != str(suite):
                 return False
-            if release_date is not None and rel.release_date != date(release_date):
+            if release_date is not None and rel.release_date != date(
+                    release_date):
                 return False
             if eol_date is not None and rel.eol_date != date(eol_date):
                 return False
@@ -118,14 +120,15 @@ def distributions(id: str = None, id_like: set = set()) -> Iterator[DistInfo]:
 
 def __debubun_rel(distribution: DistInfo) -> DistInfo:
     with urlopen('https://debian.pages.debian.net/distro-info-data/' +
-                 distribution.id+'.csv') as rel_data:
+                 distribution.id + '.csv') as rel_data:
         csv_data = csv.reader(TextIOWrapper(rel_data), dialect='unix')
-        # skip the title line: version,codename,series,created,release,eol,eol-server
+        # skip the title line:
+        # version,codename,series,created,release,eol,eol-server
         next(csv_data)
         for order, rel in enumerate(csv_data):
             release = ReleaseInfo(distribution,
                                   rel[1] if rel[0] == '' else rel[0] +
-                                  ' ('+rel[1]+')',
+                                  ' (' + rel[1] + ')',
                                   re.sub(r'[^0-9.].*', '', rel[0]),
                                   order,
                                   rel[2])
@@ -146,7 +149,7 @@ def __init_distribs():
     debian = __debubun_rel(DistInfo("Debian GNU/Linux", 'debian'))
     for release, suite in zip(
             reversed(debian.releases(supported=True)),
-            map(lambda n: 'old'*n+'stable', count(0))):
+            map(lambda n: 'old' * n + 'stable', count(0))):
         release.suite = suite
     debian.releases(released=False)[0].suite = 'testing'
     debian.releases(codename='sid')[0].suite = 'unstable'
@@ -161,11 +164,11 @@ def __init_distribs():
 
     centos = DistInfo("CentOS Linux", 'centos', id_like=['rhel', 'fedora'])
     centos.add_release("8", '8', 8, cpe='cpe:/o:centos:centos:8',
-                       release_date=date(2019,  9, 24), eol_date=date(2021, 12, 31))
+                       release_date=date(2019, 9, 24), eol_date=date(2021, 12, 31))
     centos.add_release("7", '7', 7, cpe='cpe:/o:centos:centos:7',
-                       release_date=date(2014,  7,  7), eol_date=date(2024,  6, 30))
+                       release_date=date(2014, 7, 7), eol_date=date(2024, 6, 30))
     centos.add_release("6", '6', 6, cpe='cpe:/o:centos:centos:6',
-                       release_date=date(2011,  7, 10), eol_date=date(2020, 11, 30))
+                       release_date=date(2011, 7, 10), eol_date=date(2020, 11, 30))
     __distribs.add(centos)
 
     fedora = DistInfo("Fedora", 'fedora')
@@ -174,35 +177,35 @@ def __init_distribs():
     # -> "Current Final Target date" / "Fedora Linux ${version} end of life"
     # and https://en.wikipedia.org/wiki/Fedora_Linux_release_history
     # fedora.add_release("44", '44', 44, suite='rawhide',
-    #                    release_date=date(2026,  4, 14), eol_date=date(2027,  5, 19))
+    # release_date=date(2026,  4, 14), eol_date=date(2027,  5, 19))
     fedora.add_release("43", '43', 43, suite='rawhide',
-                       release_date=date(2025, 11, 11), eol_date=date(2026, 12,  2))
+                       release_date=date(2025, 11, 11), eol_date=date(2026, 12, 2))
     fedora.add_release("42", '42', 42, suite='branched',
-                       release_date=date(2025,  4, 15), eol_date=date(2026,  5, 13))
+                       release_date=date(2025, 4, 15), eol_date=date(2026, 5, 13))
     fedora.add_release("41", '41', 41, cpe='cpe:/o:fedoraproject:fedora:41',
                        release_date=date(2024, 10, 22), eol_date=date(2025, 11, 26))
     fedora.add_release("40", '40', 40, cpe='cpe:/o:fedoraproject:fedora:40',
-                       release_date=date(2024,  4, 23), eol_date=date(2025,  5, 13))
+                       release_date=date(2024, 4, 23), eol_date=date(2025, 5, 13))
     fedora.add_release("39", '39', 39, cpe='cpe:/o:fedoraproject:fedora:39',
-                       release_date=date(2023, 11,  7), eol_date=date(2024, 11, 12))
+                       release_date=date(2023, 11, 7), eol_date=date(2024, 11, 12))
     fedora.add_release("38", '38', 38, cpe='cpe:/o:fedoraproject:fedora:38',
-                       release_date=date(2023,  4, 18), eol_date=date(2024,  5, 21))
+                       release_date=date(2023, 4, 18), eol_date=date(2024, 5, 21))
     fedora.add_release("37", '37', 37, cpe='cpe:/o:fedoraproject:fedora:37',
-                       release_date=date(2022, 11, 15), eol_date=date(2023, 12,  5))
+                       release_date=date(2022, 11, 15), eol_date=date(2023, 12, 5))
     fedora.add_release("36", '36', 36, cpe='cpe:/o:fedoraproject:fedora:36',
-                       release_date=date(2022,  5, 10), eol_date=date(2023,  5, 16))
+                       release_date=date(2022, 5, 10), eol_date=date(2023, 5, 16))
     fedora.add_release("35", '35', 35, cpe='cpe:/o:fedoraproject:fedora:35',
-                       release_date=date(2021, 11,  2), eol_date=date(2022, 12, 13))
+                       release_date=date(2021, 11, 2), eol_date=date(2022, 12, 13))
     fedora.add_release("34", '34', 34, cpe='cpe:/o:fedoraproject:fedora:34',
-                       release_date=date(2021,  4, 27), eol_date=date(2022,  6,  7))
+                       release_date=date(2021, 4, 27), eol_date=date(2022, 6, 7))
     fedora.add_release("33", '33', 33, cpe='cpe:/o:fedoraproject:fedora:33',
                        release_date=date(2020, 10, 27), eol_date=date(2021, 11, 30))
     fedora.add_release("32", '32', 32, cpe='cpe:/o:fedoraproject:fedora:32',
-                       release_date=date(2020,  4, 28), eol_date=date(2021,  5, 25))
+                       release_date=date(2020, 4, 28), eol_date=date(2021, 5, 25))
     fedora.add_release("31", '31', 31, cpe='cpe:/o:fedoraproject:fedora:31',
                        release_date=date(2019, 10, 29), eol_date=date(2020, 11, 24))
     fedora.add_release("30", '30', 30, cpe='cpe:/o:fedoraproject:fedora:30',
-                       release_date=date(2019,  5,  7), eol_date=date(2020,  5, 26))
+                       release_date=date(2019, 5, 7), eol_date=date(2020, 5, 26))
     __distribs.add(fedora)
 
     # redhat = DistInfo("Red Hat Enterprise Linux", 'rhel', id_like=['fedora'])
