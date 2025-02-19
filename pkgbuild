@@ -847,6 +847,7 @@ def main():
         if args.interactive:
             input("Press Enter to clean-up and continue...")
             raise
+        raise
         exit(1)
     except CalledProcessError as err:
         print("\033[31m[ERROR]\033[39m   * Error while running subprocess:\n$ " +
@@ -859,12 +860,14 @@ def main():
         if args.interactive:
             input("Press Enter to clean-up and quit...")
             raise
+        raise
         exit(2)
     except Exception as err:
         print("\033[31m[ERROR]\033[39m   * " + str(err))
         if args.interactive:
             input("Press Enter to clean-up and continue...")
             raise
+        raise
         exit(3)
 
 
