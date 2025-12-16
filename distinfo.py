@@ -176,36 +176,42 @@ def __init_distribs():
     # and https://pagure.io/fedora-pgm/schedule/tree/main
     # -> "Current Final Target date" / "Fedora Linux ${version} end of life"
     # and https://en.wikipedia.org/wiki/Fedora_Linux_release_history
-    # fedora.add_release("44", '44', 44, suite='rawhide',
-    # release_date=date(2026,  4, 14), eol_date=date(2027,  5, 19))
-    fedora.add_release("43", '43', 43, suite='rawhide',
-                       release_date=date(2025, 11, 11), eol_date=date(2026, 12, 2))
-    fedora.add_release("42", '42', 42, suite='branched',
-                       release_date=date(2025, 4, 15), eol_date=date(2026, 5, 13))
+    # fedora.add_release("47", '47', 47, cpe='cpe:/o:fedoraproject:fedora:47',
+    #                    release_date=date(2027,  4, 20), eol_date=date(2026, 12,  2))
+    # fedora.add_release("46", '46', 46, cpe='cpe:/o:fedoraproject:fedora:46',
+    #                    release_date=date(2027,  4, 20), eol_date=date(2025, 11, 26))
+    # fedora.add_release("45", '45', 45, cpe='cpe:/o:fedoraproject:fedora:45',
+    #                    release_date=date(2026, 10, 20), eol_date=date(2025, 11, 23))
+    fedora.add_release("44", '44', 44, suite='rawhide',
+                       release_date=date(2026,  4, 14), eol_date=date(2025,  5, 18))
+    fedora.add_release("43", '43', 43, cpe='cpe:/o:fedoraproject:fedora:43',
+                       release_date=date(2025, 10, 28), eol_date=date(2025, 12,  9))
+    fedora.add_release("42", '42', 42, cpe='cpe:/o:fedoraproject:fedora:42',
+                       release_date=date(2025,  4, 15), eol_date=date(2026,  5, 13))
     fedora.add_release("41", '41', 41, cpe='cpe:/o:fedoraproject:fedora:41',
-                       release_date=date(2024, 10, 22), eol_date=date(2025, 11, 26))
+                       release_date=date(2024, 10, 29), eol_date=date(2025, 12, 15))
     fedora.add_release("40", '40', 40, cpe='cpe:/o:fedoraproject:fedora:40',
-                       release_date=date(2024, 4, 23), eol_date=date(2025, 5, 13))
+                       release_date=date(2024,  4, 23), eol_date=date(2025,  5, 13))
     fedora.add_release("39", '39', 39, cpe='cpe:/o:fedoraproject:fedora:39',
-                       release_date=date(2023, 11, 7), eol_date=date(2024, 11, 12))
+                       release_date=date(2023, 11,  7), eol_date=date(2024, 11, 12))
     fedora.add_release("38", '38', 38, cpe='cpe:/o:fedoraproject:fedora:38',
-                       release_date=date(2023, 4, 18), eol_date=date(2024, 5, 21))
+                       release_date=date(2023,  4, 18), eol_date=date(2024,  5, 21))
     fedora.add_release("37", '37', 37, cpe='cpe:/o:fedoraproject:fedora:37',
-                       release_date=date(2022, 11, 15), eol_date=date(2023, 12, 5))
+                       release_date=date(2022, 11, 15), eol_date=date(2023, 12,  5))
     fedora.add_release("36", '36', 36, cpe='cpe:/o:fedoraproject:fedora:36',
-                       release_date=date(2022, 5, 10), eol_date=date(2023, 5, 16))
+                       release_date=date(2022,  5, 10), eol_date=date(2023,  5, 16))
     fedora.add_release("35", '35', 35, cpe='cpe:/o:fedoraproject:fedora:35',
-                       release_date=date(2021, 11, 2), eol_date=date(2022, 12, 13))
+                       release_date=date(2021, 11,  2), eol_date=date(2022, 12, 13))
     fedora.add_release("34", '34', 34, cpe='cpe:/o:fedoraproject:fedora:34',
-                       release_date=date(2021, 4, 27), eol_date=date(2022, 6, 7))
+                       release_date=date(2021,  4, 27), eol_date=date(2022,  6,  7))
     fedora.add_release("33", '33', 33, cpe='cpe:/o:fedoraproject:fedora:33',
                        release_date=date(2020, 10, 27), eol_date=date(2021, 11, 30))
     fedora.add_release("32", '32', 32, cpe='cpe:/o:fedoraproject:fedora:32',
-                       release_date=date(2020, 4, 28), eol_date=date(2021, 5, 25))
+                       release_date=date(2020,  4, 28), eol_date=date(2021,  5, 25))
     fedora.add_release("31", '31', 31, cpe='cpe:/o:fedoraproject:fedora:31',
                        release_date=date(2019, 10, 29), eol_date=date(2020, 11, 24))
     fedora.add_release("30", '30', 30, cpe='cpe:/o:fedoraproject:fedora:30',
-                       release_date=date(2019, 5, 7), eol_date=date(2020, 5, 26))
+                       release_date=date(2019,  5,  7), eol_date=date(2020,  5, 26))
     __distribs.add(fedora)
 
     # redhat = DistInfo("Red Hat Enterprise Linux", 'rhel', id_like=['fedora'])
