@@ -25,6 +25,7 @@ RUN DNF=yum \
     esac \
  && ${DNF} upgrade -y \
  && ${DNF} install -y --setopt=tsflags=nodocs ${WEAK_DEPS} \
+    openssl \
     rpm-build \
     ${BUILDDEP} \
  && ${DNF} upgrade -y \
