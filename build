@@ -28,6 +28,16 @@ def main():
     if res == 0 and args.publish:
         run(['docker', 'push', REPO + 'rpm_tools']).returncode
 
+    res = run_docker('build', '--force-rm', '-t',
+                     REPO + 'deb_tools', 'deb_tools')
+    if res == 0 and args.publish:
+        run(['docker', 'push', REPO + 'rpm_tools']).returncode
+
+    res = run_docker('build', '--force-rm', '-t',
+                     REPO + 'gpg2', 'gpg2')
+    if res == 0 and args.publish:
+        run(['docker', 'push', REPO + 'gpg2']).returncode
+
     for distrib in distributions():
         for release in distrib.releases(eoled=False):
             release_id = release.id

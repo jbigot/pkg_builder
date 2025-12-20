@@ -7,6 +7,7 @@ ARG DIST_ID=fedora
 ARG DIST_RELEASE=latest
 
 VOLUME /src
+VOLUME /output
 VOLUME /localrepo
 
 RUN DNF=yum \

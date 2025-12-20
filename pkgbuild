@@ -13,7 +13,7 @@ from os import cpu_count, getegid, geteuid, link
 from pathlib import Path
 import re
 import socket
-from shlex import quote
+import shlex
 from shutil import copy2, copytree, rmtree
 from subprocess import Popen, CalledProcessError, PIPE, STDOUT
 from sys import argv, stderr
@@ -34,7 +34,10 @@ from distinfo import ReleaseInfo, distributions
 
 VERBOSE = None
 REPO = 'ghcr.io/jbigot/pkg_builder/'
-GPGEXEC = 'gpg2'
+
+
+def quote(v):
+    return shlex.quote(str(v))
 
 
 def urlnormalize(url):
@@ -42,97 +45,6 @@ def urlnormalize(url):
     su = ParseResult(su.scheme, su.netloc, str(Path(su.path)),
                      su.params, su.query, su.fragment)
     return urlunparse(su)
-
-
-class GpgInfo:
-    def __init__(self, keyfile, keyid=None, passphrase=None, uid=None):
-        self._secring = keyfile
-        self._keyid = keyid
-        self._passphrase = passphrase
-        self._home_dir = Path(mkdtemp(prefix='GNUPG_HOME.'))
-        atexit.register(rmtree, self._home_dir)
-        self._gpg_bin = self._home_dir / 'bin' / 'gpg'
-        self._uid = uid
-
-        if self._keyid is not None:
-            self._keyid = self._keyid.upper()
-
-        self._home_dir.chmod(0o700)
-        cheched_run([GPGEXEC, '--batch', '--homedir', self.home()] +
-                    self.passphrase('', ['--passphrase']) +
-                    ['--import', self.ring()],
-                    cwd=self._home_dir)
-
-        self._gpg_bin.parent.mkdir()
-        with self._gpg_bin.open('w') as gpg_bin_raw:
-            print('#!/bin/sh', file=gpg_bin_raw)
-            print('exec ' + GPGEXEC + ' --batch --pinentry-mode loopback --homedir '
-                  + quote(self.home()) + ' --passphrase '
-                  + quote(self.passphrase('')) + ' "$@"', file=gpg_bin_raw)
-        self._gpg_bin.chmod(0o700)
-
-        data = cheched_run([GPGEXEC, '--batch', '--homedir', self.home(),
-                            '--with-colons', '--with-fingerprint',
-                            '--fixed-list-mode'] + self.passphrase(
-            '', ['--passphrase']) + ['--list-secret-keys'],
-            cwd=self._home_dir, return_stdout=True)
-        in_key = False
-        for line in data.splitlines():
-            res = line.split(':')
-            if res[0] == 'sec':
-                in_key = False
-                if self._keyid is None or res[4].upper(
-                )[-8:] == self._keyid[-8:]:
-                    in_key = True
-            elif (res[0] == 'ssb' or res[0] == 'pub' or res[0] == 'crt'
-                  or res[0] == 'crs' or res[0] == 'sub'):
-                in_key = False
-            elif res[0] == 'fpr' and in_key:
-                self._keyid = res[9].upper()
-            elif res[0] == 'uid' and in_key:
-                if self._uid is None or res[9].strip() == self._uid.strip():
-                    self._uid = res[9]
-
-    def _combine(self, prel, pre, data, post, postl):
-        if data is None:
-            if prel is not None or postl is not None:
-                return []
-            if pre is not None or post is not None:
-                return ''
-            return None
-        data = str(data)
-        if pre is not None:
-            data = pre + data
-        if post is not None:
-            data = data + post
-        if prel is not None or postl is not None:
-            data = [data]
-        if prel is not None:
-            data = prel + data
-        if postl is not None:
-            data = data + postl
-        return data
-
-    def uid(self, pre=None, prel=None, post=None, postl=None):
-        return self._combine(prel, pre, self._uid, post, postl)
-
-    def id(self, pre=None, prel=None, post=None, postl=None):
-        return self._combine(prel, pre, self._keyid, post, postl)
-
-    def id8(self, pre=None, prel=None, post=None, postl=None):
-        return self._combine(prel, pre, self._keyid[-8:], post, postl)
-
-    def passphrase(self, pre=None, prel=None, post=None, postl=None):
-        return self._combine(prel, pre, self._passphrase, post, postl)
-
-    def ring(self, pre=None, prel=None, post=None, postl=None):
-        return self._combine(prel, pre, self._secring, post, postl)
-
-    def bin(self, pre=None, prel=None, post=None, postl=None):
-        return self._combine(prel, pre, self._gpg_bin, post, postl)
-
-    def home(self, pre=None, prel=None, post=None, postl=None):
-        return self._combine(prel, pre, self._home_dir, post, postl)
 
 
 RUNNING_PROCESSES = set()
@@ -156,7 +68,7 @@ def cancellation_request():
             process.terminate()
 
 
-def cheched_run(cmd, cwd=None, return_stdout=False):
+def checked_run(cmd, cwd=None, return_stdout=False):
     with TemporaryDirectory() as tmp:
         if cwd is None:
             cwd = tmp
@@ -183,13 +95,205 @@ def cheched_run(cmd, cwd=None, return_stdout=False):
                 cancellation_point()
             retcode = process.poll()
             if retcode:
-                raise CalledProcessError(
-                    retcode, process.args, output=out, stderr=err)
+                raise CalledProcessError(retcode, process.args, output=out, stderr=err)
             if return_stdout:
                 if VERBOSE:
                     print(out, end='')
                 return out
     return None
+
+
+class DockerBindMount:
+
+    def __init__(self, target: Path | str, source: Path | str, ro: bool = False):
+        self.source = Path(source)
+        self.target = Path(target)
+        self.ro = ro
+
+
+class DockerContainer:
+
+    _DOCKERCMD = ['docker', 'run', '--rm']
+
+    def __init__(self, img_name):
+        self._img_name = [REPO + img_name]
+
+    def __call__(self, *args, mounts: Iterable[DockerBindMount] = [], shm_size: str | None = None,
+                 workdir: Path | str | None = None, return_stdout: bool = False,
+                 user: str = str(geteuid()) + ':' + str(getegid()),
+                 env: Iterable[tuple[str, any]] = []):
+        mountparam = []
+        for m in mounts:
+            mountparam += ['--mount',
+                           'type=bind' + (',ro' if m.ro else '') + ',target=' + quote(m.target)
+                           + ',source=' + quote(m.source)]
+        workdirparam = []
+        if workdir is not None:
+            workdirparam = ['--workdir', quote(Path(workdir))]
+        shmsizeparam = []
+        if shm_size is not None:
+            shmsizeparam = ['--shm-size', shm_size]
+        userparam = []
+        if user is not None:
+            userparam = ['--user', quote(user)]
+        envparam = ['--env='+str(e[0])+'='+str(e[1]) for e in env]
+        return checked_run(DockerContainer._DOCKERCMD + userparam + mountparam + workdirparam
+                           + envparam + shmsizeparam + self._img_name + [*args],
+                           return_stdout=return_stdout)
+
+
+class GpgInfo(DockerContainer):
+
+    def __init__(self, keyfile, keyid=None, passphrase=None, uid=None):
+        super().__init__('gpg2')
+        self._keyid = keyid
+        self._passphrase = passphrase
+        self._home_dir = Path(mkdtemp(prefix='GNUPG_HOME.'))
+        atexit.register(rmtree, self._home_dir)
+        self._gpg_bin = self._home_dir / 'bin' / 'gpg'
+        self._uid = uid
+        self._mount_gnupghome = DockerBindMount('/gnupghome', self._home_dir)
+
+        if self._keyid is not None:
+            self._keyid = self._keyid.upper()
+
+        # Build our config
+        self._home_dir.chmod(0o700)
+        with (self._home_dir / 'passphrase').open('w') as passphrase:
+            print(self._passphrase, end='', file=passphrase)
+        with (self._home_dir / 'S.gpg-agent').open('w') as gpgagent_socket:
+            print("%Assuan%\nsocket=/tmp/S.gpg-agent", file=gpgagent_socket)
+        with (self._home_dir / 'S.gpg-agent.ssh').open('w') as gpgagent_socketssh:
+            print("%Assuan%\nsocket=/tmp/S.gpg-agent.ssh", file=gpgagent_socketssh)
+        with (self._home_dir / 'gpg-agent.conf').open('w') as gpgagent_conf:
+            print('extra-socket /tmp/S.gpg-agent.extra', file=gpgagent_conf)
+            print('browser-socket /tmp/S.gpg-agent.browser', file=gpgagent_conf)
+        with (self._home_dir / 'gpg.conf').open('w') as gpg_conf:
+            print('batch', file=gpg_conf)
+            print('always-trust', file=gpg_conf)
+            print('pinentry-mode loopback', file=gpg_conf)
+            print('passphrase-file /gnupghome/passphrase', file=gpg_conf)
+
+        # Import the provided key
+        self('--passphrase-file', '/gnupghome/passphrase', '--import', quote(Path(keyfile).name),
+             mounts=[DockerBindMount('/data', Path(keyfile).parent)])
+
+        # Parse the KEYID & UID from the imported key
+        data = self('--with-colons', '--with-fingerprint', '--fixed-list-mode',
+                    '--list-secret-keys',
+                    return_stdout=True)
+        in_key = False
+        for line in data.splitlines():
+            res = line.split(':')
+            if res[0] == 'sec':
+                in_key = False
+                if self._keyid is None or res[4].upper()[-8:] == self._keyid[-8:]:
+                    in_key = True
+            elif (res[0] == 'ssb' or res[0] == 'pub' or res[0] == 'crt' or res[0] == 'crs'
+                  or res[0] == 'sub'):
+                in_key = False
+            elif res[0] == 'fpr' and in_key:
+                self._keyid = res[9].upper()
+            elif res[0] == 'uid' and in_key:
+                if self._uid is None or res[9].strip() == self._uid.strip():
+                    self._uid = res[9]
+
+        # Mark the key as trusted
+        with (self._home_dir / 'gpg.conf').open('a') as gpg_conf:
+            print('trusted-key '+self._keyid, file=gpg_conf)
+
+        # Remove the passphrase from the key
+        self('--passphrase-file', '/gnupghome/passphrase', '--passwd', self._keyid)
+
+        # Export the key to a gpg1-compatible keyring
+        self('--passphrase-file', '/gnupghome/passphrase', '--export', '--output',
+             '/gnupghome/keyring.pgp')
+
+    def __call__(self, *args, mounts: Iterable[DockerBindMount] = [], **kwargs):
+        return super().__call__(*args, mounts=[self._mount_gnupghome]+mounts, **kwargs)
+
+    def uid(self):
+        """The UID of the key"""
+        return self._uid
+
+    def keyid(self):
+        """The full key identifier"""
+        return self._keyid
+
+    def keyid8(self):
+        """The 8-char key identifier"""
+        return self._keyid[-8:]
+
+    def gnupghome(self):
+        """The directory containing the GPG config"""
+        return self._home_dir
+
+
+class DebTools(DockerContainer):
+
+    def __init__(self, gpg: GpgInfo):
+        super().__init__('deb_tools')
+        self._gpg = gpg
+
+    def __call__(self, *args, gpgmount: bool = True, mounts: Iterable[DockerBindMount] = [],
+                 **kwargs):
+        return super().__call__(
+            *args,
+            mounts=([DockerBindMount('/gnupghome', self._gpg.gnupghome())] if gpgmount
+                    else [])+mounts,
+            **kwargs)
+
+    def dpkg_source_format(self, dir: Path):
+        return self('dpkg-source', '--print-format', '/data',
+                    mounts=[DockerBindMount('/data', dir)],
+                    return_stdout=True
+                    ).strip()
+
+    def debsign(self, pkg_src_dir: Path, key_id: str):
+        return self('debsign', '--no-conf', '-k', key_id, workdir=Path('/data') / pkg_src_dir.name,
+                    mounts=[DockerBindMount('/data', pkg_src_dir.parent)])
+
+    def mk_build_deps(self, control_file: Path | str, outdir: Path | str,
+                      build_profiles: Iterable[str]):
+        build_profiles_params = []
+        if build_profiles is not None and len(build_profiles) > 0:
+            build_profiles_params = ['--build-profiles', ','.join(build_profiles)]
+        return self('mk-build-deps', *build_profiles_params,
+                    quote(Path('/input')/Path(control_file).name), gpgmount=False,
+                    mounts=[DockerBindMount('/input', Path(control_file).parent),
+                            DockerBindMount('/data', outdir)])
+
+
+class RpmTools(DockerContainer):
+
+    def __init__(self, gpg: GpgInfo):
+        super().__init__('rpm_tools')
+        self._gpg = gpg
+
+    def __call__(self, *args, gpgmount: bool = True, mounts: Iterable[DockerBindMount] = [],
+                 **kwargs):
+        return super().__call__(
+            *args,
+            mounts=([DockerBindMount('/gnupghome', self._gpg.gnupghome())] if gpgmount
+                    else [])+mounts,
+            **kwargs)
+
+    def createrepo(self, directory):
+        self('createrepo_c', '.', shm_size='5g', mounts=[
+             DockerBindMount('/data', directory)])
+
+    def rpmspec(self, *args):
+        spec_file = Path(args[-1])
+        args = args[:-1]
+        return self('rpmspec', *args, quote(spec_file.name),
+                    mounts=[DockerBindMount('/data', spec_file.parent, ro=True)],
+                    gpgmount=False, return_stdout=True)
+
+    def rpmsign(self, *args, ):
+        file = Path(args[-1])
+        args = args[:-1]
+        self('rpmsign', *args, quote(file.name),
+             mounts=[DockerBindMount('/data', file.parent)])
 
 
 class Control(Deb822, _PkgRelationMixin):
@@ -212,6 +316,8 @@ class DebPackageBuilder:
         self._orig_url = orig_url
         self._parallelism = parallelism
 
+        self._deb_tools = DebTools(gpg)
+
         self._finished = False
         self.outdir = None
         self._depends = set([self])  # self depend => never ready
@@ -222,13 +328,11 @@ class DebPackageBuilder:
             self._debian_dir = None
             return
 
-        deps_kind = ['build-depends',
-                     'build-depends-indep', 'build-depends-arch']
+        deps_kind = ['build-depends', 'build-depends-indep', 'build-depends-arch']
         with (self._debian_dir / 'control').open() as raw_control:
             control_paragraphs = Deb822.iter_paragraphs(
                 raw_control, strict={'whitespace-separates-paragraphs': False})
-            self.bin_provides = {pkg['Package'] for
-                                 pkg in control_paragraphs if 'Package' in pkg}
+            self.bin_provides = {pkg['Package'] for pkg in control_paragraphs if 'Package' in pkg}
         with (self._debian_dir / 'control').open() as raw_control:
             control = Control(raw_control)
             self.bin_depends = {om['name'] for
@@ -240,25 +344,26 @@ class DebPackageBuilder:
     def finished(self):
         return self._finished
 
+    def name(self):
+        return self._name
+
     def __dep_packages(self):
-        return {e for el in self._depends for e in el.__dep_packages()} | set([
-            self])
+        return {e for el in self._depends for e in el.__dep_packages()} | set([self])
 
     def build(self, wk_dir):
         cancellation_point()
         try:
-            print("\033[34m[STARTED]\033[39m * building deb for " +
-                  self._name + ' on ' + str(self.dist_release) + "...")
+            print("\033[34m[STARTED]\033[39m * building deb for " + self._name + ' on '
+                  + str(self.dist_release) + "...")
 
             if self._debian_dir is None:
                 self._finished = True
-                print("\033[36m[SKIPPED]\033[39m * building deb for " +
-                      self._name + ' on ' + str(self.dist_release) + "!")
+                print("\033[36m[SKIPPED]\033[39m * building deb for " + self._name + ' on '
+                      + str(self.dist_release) + "!")
                 return
 
             # Setup our directories
-            wk_dir = wk_dir / (self._name + '.' +
-                               self.dist_release.uid() + '.deb-build')
+            wk_dir = wk_dir / (self._name + '.' + self.dist_release.uid() + '.deb-build')
             wk_dir.mkdir()
             self.outdir = wk_dir / 'output'
             self.outdir.mkdir()
@@ -266,19 +371,17 @@ class DebPackageBuilder:
             pkg_dir.mkdir()
 
             # Copy the data
-            fmt = cheched_run(['dpkg-source', '--print-format', str(self._debian_dir.parent)],
-                              return_stdout=True).strip()
+            fmt = self._deb_tools.dpkg_source_format(self._debian_dir.parent)
+
             with (self._debian_dir / 'changelog').open() as raw_changelog:
                 changelog = Changelog(raw_changelog)
             if fmt == '3.0 (quilt)':
-                pkg_src_dir = pkg_dir / \
-                    (changelog.package + '-' + changelog.upstream_version)
-                debian_dir = Path(
-                    copytree(self._debian_dir, pkg_src_dir / 'debian'))
+                pkg_src_dir = pkg_dir / (changelog.package + '-' + changelog.upstream_version)
+                debian_dir = Path(copytree(self._debian_dir, pkg_src_dir / 'debian'))
             elif fmt == '3.0 (native)':
-                pkg_src_dir = Path(copytree(self._debian_dir.parent,
-                                            pkg_dir / (changelog.package + '-'
-                                                       + changelog.upstream_version)))
+                pkg_src_dir = Path(copytree(
+                    self._debian_dir.parent,
+                    pkg_dir / (changelog.package + '-' + changelog.upstream_version)))
                 debian_dir = pkg_src_dir / 'debian'
             else:
                 raise Exception('Unsupported deb package format: ' + fmt)
@@ -290,14 +393,10 @@ class DebPackageBuilder:
             chlg_date = parsedate_to_datetime(changelog.date)
             chlg_date = (datetime.now(tz=chlg_date.tzinfo) - chlg_date)
             version += '.pdidev.' + str(int(chlg_date.total_seconds()))
-            changelog.new_block(
-                package=changelog.package,
-                version=version,
-                distributions=self.dist_release.codename,
-                urgency=changelog.urgency,
-                changes=['  * Rebuild for ' + str(self.dist_release)],
-                author=self._gpg.uid(),
-                date=format_date())
+            changelog.new_block(package=changelog.package, version=version,
+                                distributions=self.dist_release.codename, urgency=changelog.urgency,
+                                changes=['  * Rebuild for ' + str(self.dist_release)],
+                                author=self._gpg.uid(), date=format_date())
             with (debian_dir / 'changelog').open('w') as raw_changelog:
                 changelog.write_to_open_file(raw_changelog)
 
@@ -305,45 +404,37 @@ class DebPackageBuilder:
             if fmt == '3.0 (quilt)':
                 self._orig_url = self._orig_url.format(
                     upstream_version=changelog.upstream_version, package=changelog.package)
-                orig_file_noext = (changelog.package + '_' +
-                                   changelog.upstream_version + '.orig.tar.')
-                self._downloader.download(
-                    self._orig_url, pkg_dir / orig_file_noext)
-                orig_file = orig_file_noext + \
-                    filetype.guess(str(pkg_dir / orig_file_noext)).extension
+                orig_file_noext = (changelog.package + '_' + changelog.upstream_version
+                                   + '.orig.tar.')
+                self._downloader.download(self._orig_url, pkg_dir / orig_file_noext)
+                orig_file = (orig_file_noext
+                             + filetype.guess(str(pkg_dir / orig_file_noext)).extension)
                 (pkg_dir / orig_file_noext).rename(pkg_dir / orig_file)
 
             # Generate the dependencies .deb
             deps_dir = wk_dir / 'deps'
             deps_dir.mkdir()
-            cheched_run(['mk-build-deps', '-P' + self.dist_release.distrib.id + ',' +
-                         self.dist_release.codename, debian_dir / 'control'], cwd=deps_dir)
+            self._deb_tools.mk_build_deps(debian_dir / 'control', deps_dir,
+                                          [self.dist_release.distrib.id,
+                                           self.dist_release.codename])
 
             # Build a repo with all dependencies
             localrepo = wk_dir / 'repo'
             DebRepoBuilder(localrepo, self._gpg).build(self.__dep_packages())
 
             # Build the package in docker
-            cheched_run(['docker', 'run', '--rm', '-eDH_VERBOSE=1', '--shm-size=5g',
-                         '--mount', 'type=bind,source=' +
-                         str(pkg_dir) + ',target=/src',
-                         '--mount', 'type=bind,source=' +
-                         str(deps_dir) + ',target=/deps',
-                         '--mount', 'type=bind,source=' +
-                         str(localrepo) + ',target=/localrepo',
-                         '--tmpfs', '/tmp:exec',
-                         REPO + '' + self.dist_release.distrib.id +
-                         '_builder:' + self.dist_release.codename,
-                         '-j' + str(self._parallelism), '-sa',
-                         '-P' + self.dist_release.distrib.id +
-                         ',' + self.dist_release.codename
-                         ])
+            DockerContainer(self.dist_release.distrib.id+'_builder:'+self.dist_release.codename)(
+                '-j'+str(self._parallelism), '-sa',
+                '-P'+self.dist_release.distrib.id+','+self.dist_release.codename,
+                mounts=[DockerBindMount('/src', pkg_dir), DockerBindMount('/deps', deps_dir),
+                        DockerBindMount('/localrepo', localrepo)],
+                shm_size='5g', user=None, env=[('DH_VERBOSE', 1)])
+
             rmtree(localrepo)
             rmtree(deps_dir)
 
             # Signing the generated packages
-            cheched_run(['debsign', '--no-conf', self._gpg.bin('-p')] + self._gpg.id('-k', []) + [
-                '--debs-dir', str(pkg_dir)], cwd=debian_dir.parent)
+            self._deb_tools.debsign(pkg_src_dir, self._gpg.keyid())
 
             # Moving the generated packages to the output directory
             for file in pkg_dir.iterdir():
@@ -372,41 +463,40 @@ class DebRepoBuilder:
         self._url = url
         if url is not None:
             self._url = urlnormalize(self._url)
-            self._name = name if name is not None else Path(
-                str(urlparse(self._url).path)).name
+            self._name = name if name is not None else Path(str(urlparse(self._url).path)).name
             self._description = description if description is not None else name
         self._readme_tpl = readme_tpl
+        self._deb_tools = DebTools(gpg)
 
     def build(self, pkgs: Iterable[DebPackageBuilder]):
-        pkgs = list(
-            filter(lambda p: 'debian' in p.dist_release.distrib.id_like, pkgs))
+        pkgs = list(filter(lambda p: 'debian' in p.dist_release.distrib.id_like, pkgs))
 
         if len(pkgs) == 0:
             return
 
         distribs = set()
         install = ""
-        with TemporaryDirectory() as tmp_dir:
+        with TemporaryDirectory(prefix='PKGBAPTLY.') as tmp_dir:
             tmp_dir = Path(tmp_dir)
-            aptly_confpath = tmp_dir / 'aptly.conf'
 
-            def aptly(*args):
-                cheched_run(
-                    ['aptly', '-config=' + str(aptly_confpath)] + list(args))
-
-            aptly_cfg = {
-                'architectures': ["amd64", "source"],
-                'gpgProvider': "internal",
-                'rootDir': str(tmp_dir),
-                'FileSystemPublishEndpoints': {'default': {
-                    'rootDir': str(self._output_dir),
-                    'linkMethod': "copy",
-                }},
-            }
-            with aptly_confpath.open('w') as aptly_conf:
-                json.dump(aptly_cfg, aptly_conf)
+            with (tmp_dir / 'aptly.conf').open('w') as aptly_conf:
+                json.dump({
+                    'architectures': ["amd64", "source"],
+                    'rootDir': "/aptlyroot",
+                    'FileSystemPublishEndpoints': {'default': {
+                        'rootDir': "/aptlyout",
+                        'linkMethod': "copy",
+                    }},
+                }, aptly_conf)
 
             self._output_dir.mkdir(parents=True, exist_ok=True)
+
+            def aptly(*args, data=None):
+                self._deb_tools('aptly', '-config=/aptlyroot/aptly.conf', *args, shm_size='5g',
+                                mounts=[DockerBindMount('/aptlyroot', tmp_dir),
+                                        DockerBindMount('/aptlyout', self._output_dir)] + (
+                                            [DockerBindMount('/data', data)] if data is not None
+                                            else []))
 
             repos = set()
             for pkg in pkgs:
@@ -414,50 +504,46 @@ class DebRepoBuilder:
                     continue
                 if pkg.dist_release not in repos:
                     repos.add(pkg.dist_release)
-                    aptly('repo', 'create', '-distribution=' +
-                          pkg.dist_release.codename, pkg.dist_release.uid())
+                    aptly('repo', 'create', '-distribution=' + pkg.dist_release.codename,
+                          pkg.dist_release.uid())
                     if pkg.dist_release.suite is not None:
                         aptly('repo', 'create', '-distribution=' + pkg.dist_release.suite,
                               pkg.dist_release.uid() + ':' + pkg.dist_release.suite)
-                aptly('repo', 'include', self._gpg.ring('-keyring='),
-                      '-no-remove-files', '-repo=' + pkg.dist_release.uid(), str(pkg.outdir))
+                aptly('repo', 'include',
+                      '-keyring=/gnupghome/keyring.pgp',
+                      '-no-remove-files', '-repo=' + pkg.dist_release.uid(), '/data',
+                      data=pkg.outdir)
                 if pkg.dist_release.suite is not None:
-                    aptly('repo', 'include', self._gpg.ring('-keyring='), '-no-remove-files',
-                          '-repo=' + pkg.dist_release.uid() + ':' + pkg.dist_release.suite,
-                          str(pkg.outdir))
+                    aptly('repo', 'include',
+                          '-keyring=/gnupghome/keyring.pgp',
+                          '-no-remove-files',
+                          '-repo=' + pkg.dist_release.uid() + ':' + pkg.dist_release.suite, '/data',
+                          data=pkg.outdir)
             repos = sorted(repos, key=str)
             for dist_release in repos:
                 distribs.add(str(dist_release.distrib))
                 if self._readme_tpl is not None:
                     with open(self._readme_tpl / ('INSTALL.' + str(dist_release.distrib.id)
                                                   + '.tpl.html')) as template_file:
-                        install += Template(
-                            template_file.read()).substitute(
-                            dist_release=str(dist_release), codename=str(
-                                dist_release.codename), baseurl=str(
-                                self._url))
-                publish_repo = (['publish', 'repo', '-batch', self._gpg.ring('-secret-keyring='),
-                                 '-force-overwrite'] + self._gpg.id8('-gpg-key=', []) +
-                                self._gpg.passphrase('-passphrase=', []))
+                        install += Template(template_file.read()).substitute(
+                            dist_release=str(dist_release),
+                            codename=str(dist_release.codename),
+                            baseurl=str(self._url))
+                publish_repo = (['publish', 'repo', '-batch', '-force-overwrite',
+                                 '-gpg-key='+self._gpg.keyid8()])
                 if self._url is not None:
                     ['-notautomatic=yes', '-butautomaticupgrades=yes']
-                    publish_repo += ['-label=' +
-                                     self._description, '-origin=' + self._name]
+                    publish_repo += ['-label=' + self._description, '-origin=' + self._name]
 
-                aptly(*publish_repo, dist_release.uid(),
-                      'filesystem:default:')
+                aptly(*publish_repo, dist_release.uid(), 'filesystem:default:')
                 if dist_release.suite is not None:
                     aptly(*publish_repo, dist_release.uid() + ':' + dist_release.suite,
                           'filesystem:default:')
 
         if self._url is not None:
-            (self._output_dir / (self._name + '-archive-keyring.gpg')
-             ).unlink(missing_ok=True)
-            cheched_run(
-                [self._gpg.bin(),
-                 '--export', '--output',
-                 str(self._output_dir / (self._name + '-archive-keyring.gpg'))],
-                cwd=self._output_dir)
+            (self._output_dir / (self._name + '-archive-keyring.gpg')).unlink(missing_ok=True)
+            self._gpg('--export', '--output', quote(self._name + '-archive-keyring.gpg'),
+                      mounts=[DockerBindMount('/data', self._output_dir)])
         if self._readme_tpl is not None:
             with open(self._output_dir / 'index.html', mode='w') as readme_file:
                 with open(self._readme_tpl / 'README.tpl.html') as template_file:
@@ -481,16 +567,18 @@ class RpmPackageBuilder:
         self.bin_provides = set()
         self.bin_depends = set()
 
+        self._rpm_tools = RpmTools(gpg)
+
         if not self._spec.is_file():
             self._spec = None
             return
 
         self.bin_depends = {re.sub(r'[\( ].*', '', dep) for dep in
-                            cheched_run(['rpmspec', '--buildrequires', '-q', str(self._spec)],
-                                        return_stdout=True).splitlines()}
-        self.bin_provides = {re.sub(r'[\( ].*', '', d) for d in
-                             cheched_run(['rpmspec', '--provides', '-q', str(self._spec)],
-                                         return_stdout=True).splitlines()}
+                            self._rpm_tools.rpmspec('--buildrequires', '-q', self._spec)
+                            .splitlines()}
+        self.bin_provides = {re.sub(r'[\( ].*', '', dep) for dep in
+                             self._rpm_tools.rpmspec('--provides', '-q', self._spec)
+                             .splitlines()}
 
     def ready(self):
         return all(map(RpmPackageBuilder.finished, self._depends))
@@ -528,8 +616,7 @@ class RpmPackageBuilder:
             localrepo = wk_dir / 'repo'
             RpmRepoBuilder(localrepo, self._gpg).build(self.incomings())
 
-            all_urls = cheched_run(['rpmspec', '-P', str(self._spec)],
-                                   return_stdout=True).splitlines()
+            all_urls = self._rpm_tools.rpmspec('-P', self._spec).splitlines()
             all_urls = [url for url in all_urls if re.match(
                 r'^\s*source[0-9]*\s*:', url, re.IGNORECASE) is not None]
             all_urls = [re.sub(r'^\s*source[0-9]*\s*:\s*',
@@ -542,28 +629,18 @@ class RpmPackageBuilder:
                     orig_file = Path(urlparse(orig_url).path).name
                 self._downloader.download(orig_url, pkg_dir / orig_file)
 
-            cheched_run(['docker', 'run', '--rm', '--shm-size=5g', '--mount', 'type=bind,source=' +
-                         str(pkg_dir) +
-                         ',target=/src', '--mount', 'type=bind,source=' +
-                         str(localrepo / self.dist_release.id) +
-                         ',target=/localrepo', '--tmpfs', '/tmp:exec', REPO + '' +
-                         self.dist_release.distrib.id +
-                         '_builder:' +
-                         self.dist_release.id])
+            DockerContainer(self.dist_release.distrib.id+'_builder:'+self.dist_release.id)(
+                mounts=[DockerBindMount('/src', pkg_dir, ro=True),
+                        DockerBindMount('/output', self.outdir),
+                        DockerBindMount('/localrepo', localrepo / self.dist_release.id, ro=True)],
+                shm_size='5g', user=None)
             rmtree(localrepo)
 
             # Sign the generated packages
-            for file in pkg_dir.iterdir():
+            for file in self.outdir.iterdir():
                 if file.suffix == '.rpm':
-                    cheched_run(['rpmsign', self._gpg.bin('--define=%_gpg_bin '),
-                                 self._gpg.bin('--define=%__gpg '),
-                                 self._gpg.home('--define=%_gpg_home '),
-                                 self._gpg.uid('--define=%_gpg_name '),
-                                 '--resign', file], cwd=pkg_dir)
-
-            for file in pkg_dir.iterdir():
-                if file.suffix == '.rpm':
-                    file.rename(self.outdir / file.name)
+                    self._rpm_tools.rpmsign('--define=%_gpg_name '+self._gpg.uid(),
+                                            '--resign', file)
             rmtree(pkg_dir)
 
             print("\033[32m[SUCCESS]\033[39m * building rpm for " +
@@ -585,6 +662,7 @@ class RpmRepoBuilder:
         self._output_dir = output_dir
         self._gpg = gpg
         self._url = url
+        self._rpm_tools = RpmTools(gpg)
         if url is not None:
             self._name = name if name is not None else str(
                 Path(urlparse(str(self._url)).path).name)
@@ -616,8 +694,8 @@ class RpmRepoBuilder:
 
         if self._url is not None:
             (self._output_dir / (self._name + '.key')).unlink(missing_ok=True)
-            cheched_run([self._gpg.bin(), '--armor', '--export', '--output',
-                         str(self._output_dir / (self._name + '.key'))], cwd=self._output_dir)
+            self._gpg('--export', '--armor', '--output', Path('/data') / (self._name + '.key'),
+                      mounts=[DockerBindMount('/data', self._output_dir)])
 
         install = ""
         distribs = set()
@@ -627,15 +705,10 @@ class RpmRepoBuilder:
 
             distribs.add(str(dist_release.distrib))
 
-            cheched_run(
-                ['docker', 'run', '--rm', '--shm-size=5g', '--user=' + str(geteuid()) + ':' +
-                 str(getegid()),
-                 '--mount', 'type=bind,source=' +
-                 str(release_dir) + ',target=/data',
-                 REPO + 'rpm_tools', '.'])
+            self._rpm_tools.createrepo(release_dir)
             (release_dir / 'repodata' / 'repomd.xml.asc').unlink(missing_ok=True)
-            cheched_run([self._gpg.bin(), '-b', '-a',
-                         'repodata/repomd.xml'], cwd=release_dir)
+            self._gpg('-b', '-a', 'repodata/repomd.xml',
+                      mounts=[DockerBindMount('/data', release_dir)])
             if self._url is not None:
                 baseurl = urljoin(self._url, dist_release.id)
                 repo_data = ConfigParser()
@@ -669,8 +742,7 @@ class RpmRepoBuilder:
 def order_packages(pkglst):
     # maps (b, r) => s when the binary package b is generated by the source
     # package s on release r
-    providers = {(bpkg, pkg.dist_release)
-                  : pkg for pkg in pkglst for bpkg in pkg.bin_provides}
+    providers = {(bpkg, pkg.dist_release): pkg for pkg in pkglst for bpkg in pkg.bin_provides}
     for pkg in pkglst:
         pkg._depends = {providers[(b, pkg.dist_release)] for b in pkg.bin_depends if (
             b, pkg.dist_release) in providers}
@@ -813,7 +885,7 @@ def main():
                                 name,
                                 downloader,
                                 pkg_cfg.get('orig', None),
-                                1))
+                                args.jobs))
                     if 'fedora' in dist_release.distrib.id_like:
                         dist_packages.add(
                             RpmPackageBuilder(
@@ -823,7 +895,7 @@ def main():
                                 name,
                                 downloader,
                                 pkg_cfg.get('orig', None),
-                                1))
+                                args.jobs))
 
             output_path = base_dir / \
                 distrib_cfg.get('repository', {}).get('path', 'repositories')

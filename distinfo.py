@@ -183,9 +183,9 @@ def __init_distribs():
     # fedora.add_release("45", '45', 45, cpe='cpe:/o:fedoraproject:fedora:45',
     #                    release_date=date(2026, 10, 20), eol_date=date(2025, 11, 23))
     fedora.add_release("44", '44', 44, suite='rawhide',
-                       release_date=date(2026,  4, 14), eol_date=date(2025,  5, 18))
+                       release_date=date(2026,  4, 14), eol_date=date(2027,  5, 18))
     fedora.add_release("43", '43', 43, cpe='cpe:/o:fedoraproject:fedora:43',
-                       release_date=date(2025, 10, 28), eol_date=date(2025, 12,  9))
+                       release_date=date(2025, 10, 28), eol_date=date(2026, 12,  9))
     fedora.add_release("42", '42', 42, cpe='cpe:/o:fedoraproject:fedora:42',
                        release_date=date(2025,  4, 15), eol_date=date(2026,  5, 13))
     fedora.add_release("41", '41', 41, cpe='cpe:/o:fedoraproject:fedora:41',

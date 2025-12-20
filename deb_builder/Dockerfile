@@ -20,11 +20,12 @@ RUN echo "force-unsafe-io" > /etc/dpkg/dpkg.cfg.d/02apt-speedup \
  && apt-get install -y --no-install-recommends \
     build-essential \
     eatmydata \
+    tini \
  && apt-get dist-upgrade -y \
  && apt-get clean \
  && rm -rf /var/lib/apt/lists/*
 
-ENTRYPOINT ["/bin/bash", "-l", "/entrypoint"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/bin/bash", "-l", "/entrypoint"]
 ENV DIST_CODENAME="${DIST_CODENAME}"
 ENV LD_PRELOAD=/usr/lib/x86_64-linux-gnu/libeatmydata.so
 
