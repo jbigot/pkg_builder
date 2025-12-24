@@ -9,8 +9,7 @@ REPO = 'ghcr.io/jbigot/pkg_builder/'
 
 
 def run_docker(*args):
-    print("\n\n   \033[34m===> docker " +
-          args[0] + " " + args[-1] + " <===\033[39m")
+    print("\n\n   \033[34m===> docker " + args[0] + " " + args[-1] + " <===\033[39m")
     print('$ docker', *args, '\n')
     return run(['docker'] + list(args)).returncode
 
@@ -23,20 +22,29 @@ def main():
                         help='Publish the images')
     args = parser.parse_args()
 
-    res = run_docker('build', '--force-rm', '-t',
-                     REPO + 'rpm_tools', 'rpm_tools')
+    res = run_docker('build', '--force-rm', '-t', REPO + 'rpm_tools', 'rpm_tools')
     if res == 0 and args.publish:
-        run(['docker', 'push', REPO + 'rpm_tools']).returncode
+        res = run_docker('push', REPO + 'rpm_tools')
+    if res == 0:
+        print("\n\n   \033[32m===> DONE buidling rpm_tools\033[39m")
+    else:
+        print("\n\n   \033[33m===> SKIPPED buidling rpm_tools\033[39m")
 
-    res = run_docker('build', '--force-rm', '-t',
-                     REPO + 'deb_tools', 'deb_tools')
+    res = run_docker('build', '--force-rm', '-t', REPO + 'deb_tools', 'deb_tools')
     if res == 0 and args.publish:
-        run(['docker', 'push', REPO + 'rpm_tools']).returncode
+        res = run_docker('push', REPO + 'deb_tools')
+    if res == 0:
+        print("\n\n   \033[32m===> DONE buidling deb_tools\033[39m")
+    else:
+        print("\n\n   \033[33m===> SKIPPED buidling deb_tools\033[39m")
 
-    res = run_docker('build', '--force-rm', '-t',
-                     REPO + 'gpg2', 'gpg2')
+    res = run_docker('build', '--force-rm', '-t', REPO + 'gpg2', 'gpg2')
     if res == 0 and args.publish:
-        run(['docker', 'push', REPO + 'gpg2']).returncode
+        res = run_docker('push', REPO + 'gpg2')
+    if res == 0:
+        print("\n\n   \033[32m===> DONE buidling gpg2\033[39m")
+    else:
+        print("\n\n   \033[33m===> SKIPPED buidling gpg2\033[39m")
 
     for distrib in distributions():
         for release in distrib.releases(eoled=False):
