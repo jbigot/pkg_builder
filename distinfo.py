@@ -153,6 +153,7 @@ def __init_distribs():
         release.suite = suite
     debian.releases(released=False)[0].suite = 'testing'
     debian.releases(codename='sid')[0].suite = 'unstable'
+    debian.releases(codename='rc-buggy')[0].codename = 'experimental'
     debian.releases(codename='experimental')[0].suite = 'rc-buggy'
     __distribs.add(debian)
 
