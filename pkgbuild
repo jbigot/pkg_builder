@@ -532,7 +532,6 @@ class DebRepoBuilder:
                 publish_repo = (['publish', 'repo', '-batch', '-force-overwrite',
                                  '-gpg-key='+self._gpg.keyid8()])
                 if self._url is not None:
-                    ['-notautomatic=yes', '-butautomaticupgrades=yes']
                     publish_repo += ['-label=' + self._description, '-origin=' + self._name]
 
                 aptly(*publish_repo, dist_release.uid(), 'filesystem:default:')
@@ -916,12 +915,10 @@ def main():
         for builder in repo_builders:
             builder[0].build(builder[1])
 
-    except KeyboardInterrupt as err:
+    except KeyboardInterrupt:
         if args.interactive:
             input("Press Enter to clean-up and continue...")
-            raise
         raise
-        exit(1)
     except CalledProcessError as err:
         print("\033[31m[ERROR]\033[39m   * Error while running subprocess:\n$ " +
               ' '.join([str(ce) for ce in err.cmd]), file=stderr)
@@ -932,16 +929,12 @@ def main():
         print(file=stderr)
         if args.interactive:
             input("Press Enter to clean-up and quit...")
-            raise
         raise
-        exit(2)
     except Exception as err:
         print("\033[31m[ERROR]\033[39m   * " + str(err))
         if args.interactive:
             input("Press Enter to clean-up and continue...")
-            raise
         raise
-        exit(3)
 
 
 if __name__ == '__main__':
