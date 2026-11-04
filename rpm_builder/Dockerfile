@@ -18,6 +18,5 @@ RUN dnf upgrade -y \
  && rm -f /*.log ${HOME}/*
 
 ENTRYPOINT ["/bin/bash", "-l", "/entrypoint"]
-ENV LD_PRELOAD="/usr/lib64/nosync/nosync.so"
 
 COPY entrypoint /

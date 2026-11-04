@@ -2,6 +2,11 @@
 trap 'echo received signal, quitting...; exit 1' INT TERM
 set -ex
 
+if [ -e /usr/lib64/nosync/nosync.so ]
+then
+	export LD_PRELOAD="/usr/lib64/nosync/nosync.so"
+fi
+
 if [ -d /localrepo/repodata ]
 then
 cat<<EOF > /tmp/localrepo.repo
