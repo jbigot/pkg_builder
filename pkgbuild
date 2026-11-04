@@ -758,8 +758,12 @@ def release_list(cfg: dict) -> Set[ReleaseInfo]:
             if release_id == 'all':
                 cur.update(dist.releases())
             elif release_id == '+':
+                if len(prev) == 0:
+                    raise Exception("'+' must follow a release in " + dist_id + ' versions')
                 cur.update(dist.releases(after=max(prev)))
-            if release_id == '-':
+            elif release_id == '-':
+                if len(prev) == 0:
+                    raise Exception("'-' must follow a release in " + dist_id + ' versions')
                 cur.update(dist.releases(before=min(prev)))
             elif release_id == 'supported':
                 cur.update(dist.releases(supported=True))
