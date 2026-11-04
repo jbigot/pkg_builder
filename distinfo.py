@@ -3,7 +3,6 @@ import csv
 from datetime import date
 from functools import total_ordering
 from io import TextIOWrapper
-from itertools import count, repeat
 import re
 from typing import Iterator, List
 from urllib.request import urlopen
@@ -147,14 +146,15 @@ def __init_distribs():
     __distribs = set()
 
     debian = __debubun_rel(DistInfo("Debian GNU/Linux", 'debian'))
+    # the archive keeps stable, oldstable and oldoldstable as aliases of the three latest releases,
+    # whether they are still under regular security support or only under LTS
     for release, suite in zip(
-            reversed(debian.releases(supported=True)),
-            map(lambda n: 'old' * n + 'stable', count(0))):
+            reversed(debian.releases(released=True)),
+            ['stable', 'oldstable', 'oldoldstable']):
         release.suite = suite
     debian.releases(released=False)[0].suite = 'testing'
     debian.releases(codename='sid')[0].suite = 'unstable'
-    debian.releases(codename='rc-buggy')[0].codename = 'experimental'
-    debian.releases(codename='experimental')[0].suite = 'rc-buggy'
+    debian.releases(codename='rc-buggy')[0].suite = 'experimental'
     __distribs.add(debian)
 
     ubuntu = __debubun_rel(DistInfo("Ubuntu", 'ubuntu', id_like=['debian']))

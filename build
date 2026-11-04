@@ -56,7 +56,7 @@ def main():
                 builder = 'deb_builder'
             docker_image = REPO + '' + distrib.id + '_builder:' + release_id
             docker_release = release_id
-            if 'debian' == distrib.id and release.codename != 'experimental':
+            if 'debian' == distrib.id and release.codename != 'rc-buggy':
                 docker_release = docker_release + '-slim'
             res = run_docker('build', '--force-rm', '-t', docker_image,
                              '--build-arg', 'DIST_ID=' + dist_id,
