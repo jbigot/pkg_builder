@@ -2,18 +2,19 @@
 
 import argparse
 import atexit
+import csv
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from configparser import ConfigParser
 from datetime import datetime
 from email.utils import parsedate_to_datetime
 import filetype
 from hashlib import sha256
+from io import StringIO
 import json
 from os import cpu_count, getegid, geteuid, link
 from pathlib import Path
 import re
 import socket
-import shlex
 from shutil import copy2, copytree, rmtree
 from subprocess import Popen, CalledProcessError, PIPE, STDOUT
 from sys import argv, stderr
@@ -36,8 +37,11 @@ VERBOSE = None
 REPO = 'ghcr.io/jbigot/pkg_builder/'
 
 
-def quote(v):
-    return shlex.quote(str(v))
+def mount_spec(*fields):
+    """docker parses the value of --mount as a CSV line"""
+    spec = StringIO()
+    csv.writer(spec, lineterminator='').writerow(fields)
+    return spec.getvalue()
 
 
 def urlnormalize(url):
@@ -125,17 +129,17 @@ class DockerContainer:
         mountparam = []
         for m in mounts:
             mountparam += ['--mount',
-                           'type=bind' + (',ro' if m.ro else '') + ',target=' + quote(m.target)
-                           + ',source=' + quote(m.source)]
+                           mount_spec('type=bind', *(['ro'] if m.ro else []),
+                                      'target=' + str(m.target), 'source=' + str(m.source))]
         workdirparam = []
         if workdir is not None:
-            workdirparam = ['--workdir', quote(Path(workdir))]
+            workdirparam = ['--workdir', str(Path(workdir))]
         shmsizeparam = []
         if shm_size is not None:
             shmsizeparam = ['--shm-size', shm_size]
         userparam = []
         if user is not None:
-            userparam = ['--user', quote(user)]
+            userparam = ['--user', str(user)]
         envparam = ['--env='+str(e[0])+'='+str(e[1]) for e in env]
         return checked_run(DockerContainer._DOCKERCMD + userparam + mountparam + workdirparam
                            + envparam + shmsizeparam + self._img_name + [*args],
@@ -175,7 +179,7 @@ class GpgInfo(DockerContainer):
             print('passphrase-file /gnupghome/passphrase', file=gpg_conf)
 
         # Import the provided key
-        self('--passphrase-file', '/gnupghome/passphrase', '--import', quote(Path(keyfile).name),
+        self('--passphrase-file', '/gnupghome/passphrase', '--import', str(Path(keyfile).name),
              mounts=[DockerBindMount('/data', Path(keyfile).parent)])
 
         # Parse the KEYID & UID from the imported key
@@ -259,7 +263,7 @@ class DebTools(DockerContainer):
         if build_profiles is not None and len(build_profiles) > 0:
             build_profiles_params = ['--build-profiles', ','.join(build_profiles)]
         return self('mk-build-deps', *build_profiles_params,
-                    quote(Path('/input')/Path(control_file).name), gpgmount=False,
+                    str(Path('/input')/Path(control_file).name), gpgmount=False,
                     mounts=[DockerBindMount('/input', Path(control_file).parent),
                             DockerBindMount('/data', outdir)])
 
@@ -285,14 +289,14 @@ class RpmTools(DockerContainer):
     def rpmspec(self, *args):
         spec_file = Path(args[-1])
         args = args[:-1]
-        return self('rpmspec', *args, quote(spec_file.name),
+        return self('rpmspec', *args, str(spec_file.name),
                     mounts=[DockerBindMount('/data', spec_file.parent, ro=True)],
                     gpgmount=False, return_stdout=True)
 
     def rpmsign(self, *args, ):
         file = Path(args[-1])
         args = args[:-1]
-        self('rpmsign', *args, quote(file.name),
+        self('rpmsign', *args, str(file.name),
              mounts=[DockerBindMount('/data', file.parent)])
 
 
@@ -541,7 +545,7 @@ class DebRepoBuilder:
 
         if self._url is not None:
             (self._output_dir / (self._name + '-archive-keyring.gpg')).unlink(missing_ok=True)
-            self._gpg('--export', '--output', quote(self._name + '-archive-keyring.gpg'),
+            self._gpg('--export', '--output', str(self._name + '-archive-keyring.gpg'),
                       mounts=[DockerBindMount('/data', self._output_dir)])
         if self._readme_tpl is not None:
             with open(self._output_dir / 'index.html', mode='w') as readme_file:
