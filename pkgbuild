@@ -468,7 +468,7 @@ class DebRepoBuilder:
         if url is not None:
             self._url = urlnormalize(self._url)
             self._name = name if name is not None else Path(str(urlparse(self._url).path)).name
-            self._description = description if description is not None else name
+            self._description = description if description is not None else self._name
         self._readme_tpl = readme_tpl
         self._deb_tools = DebTools(gpg)
 
@@ -662,9 +662,11 @@ class RpmRepoBuilder:
         self._url = url
         self._rpm_tools = RpmTools(gpg)
         if url is not None:
+            # a trailing slash, so that urljoin appends to the URL rather than replace its end
+            self._url = urlnormalize(self._url) + '/'
             self._name = name if name is not None else str(
                 Path(urlparse(str(self._url)).path).name)
-            self._description = description if description is not None else name
+            self._description = description if description is not None else self._name
         self._readme_tpl = readme_tpl
 
     def build(self, pkgs: Iterable[RpmPackageBuilder]):
