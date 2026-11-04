@@ -169,6 +169,24 @@ def __fedora_rel(distribution: DistInfo) -> DistInfo:
     return distribution
 
 
+def __endoflife_dist(product: str, id: str, id_like=list(), docker_image: str = None) -> DistInfo:
+    # endoflife.date gathers the major releases of the distribution with their dates from its
+    # vendor's own pages
+    with urlopen('https://endoflife.date/api/v1/products/' + product) as rel_data:
+        rel_data = json.load(rel_data)['result']
+    distribution = DistInfo(rel_data['label'], id, id_like=id_like, docker_image=docker_image)
+    cpe = next(i['id'] for i in rel_data['identifiers']
+               if i['type'] == 'cpe' and i['id'].startswith('cpe:/'))
+    for rel in rel_data['releases']:
+        distribution.add_release(rel['name'], rel['name'], int(rel['name']),
+                                 cpe=cpe + ':' + rel['name'],
+                                 release_date=date.fromisoformat(rel['releaseDate'])
+                                 if rel.get('releaseDate') else date.max,
+                                 eol_date=date.fromisoformat(rel['eolFrom'])
+                                 if rel.get('eolFrom') else date.max)
+    return distribution
+
+
 def __init_distribs():
     global __distribs
     if __distribs is not None:
@@ -192,6 +210,11 @@ def __init_distribs():
     if len(devel):
         devel[0].suite = 'devel'
     __distribs.add(ubuntu)
+
+    __distribs.add(__endoflife_dist('almalinux', 'almalinux',
+                                    id_like=['rhel', 'centos', 'fedora']))
+    __distribs.add(__endoflife_dist('rocky-linux', 'rocky', id_like=['rhel', 'centos', 'fedora'],
+                                    docker_image='rockylinux/rockylinux'))
 
     __distribs.add(__fedora_rel(DistInfo("Fedora", 'fedora')))
 
