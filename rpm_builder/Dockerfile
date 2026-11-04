@@ -3,34 +3,18 @@ ARG DIST_RELEASE=latest
 
 FROM ${DIST_ID}:${DIST_RELEASE}
 
-ARG DIST_ID=fedora
-ARG DIST_RELEASE=latest
-
 VOLUME /src
 VOLUME /output
 VOLUME /localrepo
 
-RUN DNF=yum \
-  ; WEAK_DEPS="" \
-  ; BUILDDEP="" \
-  ; case "${DIST_ID}" in \
-    "fedora" ) \
-      DNF=dnf \
-  ;   WEAK_DEPS="--setopt=install_weak_deps=False --best" \
-  ;   BUILDDEP="dnf-command(builddep) nosync" \
-  ;; \
-    *) \
-      DNF=yum \
-  ;   BUILDDEP="yum-utils" \
-  ;; \
-    esac \
- && ${DNF} upgrade -y \
- && ${DNF} install -y --setopt=tsflags=nodocs ${WEAK_DEPS} \
+RUN dnf upgrade -y \
+ && dnf install -y --setopt=tsflags=nodocs --setopt=install_weak_deps=False --best \
+    'dnf-command(builddep)' \
+    nosync \
     openssl \
     rpm-build \
-    ${BUILDDEP} \
- && ${DNF} upgrade -y \
- && ${DNF} clean all -y --enablerepo='*' \
+ && dnf upgrade -y \
+ && dnf clean all -y --enablerepo='*' \
  && rm -f /*.log ${HOME}/*
 
 ENTRYPOINT ["/bin/bash", "-l", "/entrypoint"]
