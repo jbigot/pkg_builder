@@ -55,9 +55,10 @@ class ReleaseInfo:
 
 
 class DistInfo:
-    def __init__(self, name: str, id: str, id_like=list()):
+    def __init__(self, name: str, id: str, id_like=list(), docker_image: str = None):
         self.name = name
         self.id = id
+        self.docker_image = id if docker_image is None else docker_image
         self.id_like = list([id] + list(id_like))
         self._releases = set()
 

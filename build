@@ -60,6 +60,7 @@ def main():
                 docker_release = docker_release + '-slim'
             res = run_docker('build', '--force-rm', '-t', docker_image,
                              '--build-arg', 'DIST_ID=' + dist_id,
+                             '--build-arg', 'DIST_IMAGE=' + distrib.docker_image,
                              '--build-arg', 'DIST_RELEASE=' + docker_release,
                              '--build-arg', 'DIST_CODENAME=' +
                              str(release.codename),
