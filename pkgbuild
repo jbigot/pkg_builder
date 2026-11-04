@@ -508,21 +508,11 @@ class DebRepoBuilder:
                     continue
                 if pkg.dist_release not in repos:
                     repos.add(pkg.dist_release)
-                    aptly('repo', 'create', '-distribution=' + pkg.dist_release.codename,
-                          pkg.dist_release.uid())
-                    if pkg.dist_release.suite is not None:
-                        aptly('repo', 'create', '-distribution=' + pkg.dist_release.suite,
-                              pkg.dist_release.uid() + ':' + pkg.dist_release.suite)
+                    aptly('repo', 'create', pkg.dist_release.uid())
                 aptly('repo', 'include',
                       '-keyring=/gnupghome/keyring.pgp',
                       '-no-remove-files', '-repo=' + pkg.dist_release.uid(), '/data',
                       data=pkg.outdir)
-                if pkg.dist_release.suite is not None:
-                    aptly('repo', 'include',
-                          '-keyring=/gnupghome/keyring.pgp',
-                          '-no-remove-files',
-                          '-repo=' + pkg.dist_release.uid() + ':' + pkg.dist_release.suite, '/data',
-                          data=pkg.outdir)
             repos = sorted(repos, key=str)
             for dist_release in repos:
                 distribs.add(str(dist_release.distrib))
@@ -538,10 +528,15 @@ class DebRepoBuilder:
                 if self._url is not None:
                     publish_repo += ['-label=' + self._description, '-origin=' + self._name]
 
-                aptly(*publish_repo, dist_release.uid(), 'filesystem:default:')
+                # like the Debian archive, publish the release under its codename and under its
+                # suite, each Release file naming both so that apt accepts either in sources.list
+                names = ['-codename=' + dist_release.codename]
                 if dist_release.suite is not None:
-                    aptly(*publish_repo, dist_release.uid() + ':' + dist_release.suite,
-                          'filesystem:default:')
+                    names.append('-suite=' + dist_release.suite)
+                for distribution in [dist_release.codename, dist_release.suite]:
+                    if distribution is not None:
+                        aptly(*publish_repo, *names, '-distribution=' + distribution,
+                              dist_release.uid(), 'filesystem:default:')
 
         if self._url is not None:
             (self._output_dir / (self._name + '-archive-keyring.gpg')).unlink(missing_ok=True)
